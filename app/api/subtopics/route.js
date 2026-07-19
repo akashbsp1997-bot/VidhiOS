@@ -26,6 +26,7 @@ export async function GET() {
         masteryScore: masteryBySubtopic[s.id]?.masteryScore ?? 0,
         currentTier: masteryBySubtopic[s.id]?.currentTier ?? 1,
         attemptsCount: masteryBySubtopic[s.id]?.attemptsCount ?? 0,
+        stage: masteryBySubtopic[s.id]?.stage ?? "teach",
         sourceCount: sourceCountBySubtopic[s.id] ?? 0,
       }))
       .sort((a, b) => b.pyqFrequency - a.pyqFrequency || a.id.localeCompare(b.id));
