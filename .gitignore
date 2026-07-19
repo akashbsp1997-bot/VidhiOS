@@ -1,0 +1,26 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# env files (never commit real secrets)
+.env
+.env.local
+.env.*.local
+
+# drizzle-kit migration snapshots (regenerate locally; not needed if using db:push directly)
+/drizzle
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+
+# editor
+.vscode/
+.idea/

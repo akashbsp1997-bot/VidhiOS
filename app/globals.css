@@ -1,0 +1,124 @@
+/* Same design tokens as VidhiOS (the PWA) for a consistent "family of tools"
+   feel — leather-and-brass shell, ivory content, statute-book typography.
+   This app leans more utilitarian/dashboard than the PWA, so ornamentation
+   (seals, margin numbering) is dropped; the palette carries the brand. */
+
+:root {
+  --leather: #241713;
+  --leather-2: #34211b;
+  --brass: #b8862e;
+  --brass-light: #d9ae5c;
+  --ivory: #f7f2e3;
+  --ivory-2: #eee6d0;
+  --ivory-3: #fbf8ef;
+  --ink: #201a12;
+  --ink-soft: #6b6152;
+  --rule: #ddd0ab;
+  --maroon: #7a2222;
+  --forest: #2f5d3f;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgba(20, 14, 8, 0.06), 0 6px 18px rgba(20, 14, 8, 0.08);
+  --font-display: "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--ivory);
+  color: var(--ink);
+  font-family: var(--font-body);
+  line-height: 1.5;
+}
+a { color: inherit; }
+button, input, textarea, select { font-family: inherit; font-size: inherit; color: inherit; }
+button { cursor: pointer; }
+
+.shell { max-width: 880px; margin: 0 auto; padding: 0 20px 60px; }
+
+header.topbar {
+  background: linear-gradient(180deg, var(--leather-2), var(--leather));
+  border-bottom: 2px solid var(--brass);
+  padding: 16px 20px;
+  margin-bottom: 24px;
+}
+header.topbar .inner { max-width: 880px; margin: 0 auto; display: flex; align-items: baseline; justify-content: space-between; }
+.brand { font-family: var(--font-display); font-size: 20px; color: var(--ivory-2); font-weight: 700; text-decoration: none; }
+.brand b { color: var(--brass-light); }
+nav.toplinks { display: flex; gap: 18px; font-size: 13.5px; }
+nav.toplinks a { color: var(--brass-light); text-decoration: none; opacity: 0.85; }
+nav.toplinks a:hover { opacity: 1; text-decoration: underline; }
+
+h1 { font-family: var(--font-display); font-size: 26px; margin: 0 0 4px; }
+h2 { font-family: var(--font-display); font-size: 19px; margin: 0 0 10px; }
+p.lede { color: var(--ink-soft); margin: 0 0 20px; font-size: 14.5px; }
+
+.card {
+  background: var(--ivory-3);
+  border: 1px solid var(--rule);
+  border-top: 3px solid var(--brass);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
+}
+
+.subtopic-row {
+  display: grid;
+  grid-template-columns: 44px 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+}
+.subtopic-row:first-child { border-top: none; }
+.subtopic-code { font-family: var(--font-mono); font-size: 11px; color: var(--brass); }
+.subtopic-text { font-size: 14px; }
+.subtopic-text a { text-decoration: none; }
+.subtopic-text a:hover { text-decoration: underline; }
+.subtopic-meta { font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; }
+
+.bar { width: 90px; height: 7px; background: var(--ivory-2); border-radius: 99px; overflow: hidden; border: 1px solid var(--rule); }
+.bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--brass), var(--brass-light)); }
+
+.tier-pill { font-family: var(--font-mono); font-size: 10.5px; padding: 3px 8px; border-radius: 999px; background: var(--ivory-2); color: var(--ink-soft); white-space: nowrap; }
+.tier-pill.t3 { background: #f0dfda; color: var(--maroon); }
+
+.btn { display: inline-block; border-radius: 9px; padding: 11px 18px; font-size: 14.5px; font-weight: 600; border: 1.5px solid var(--brass); background: var(--ivory-2); color: var(--ink); text-decoration: none; }
+.btn-primary { background: var(--leather); color: var(--brass-light); border-color: var(--leather); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+
+textarea.answer-box {
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 15px;
+  line-height: 1.5;
+  background: var(--ivory);
+  resize: vertical;
+}
+
+.question-text { font-family: var(--font-display); font-size: 17px; line-height: 1.5; margin: 6px 0 14px; }
+.meta-line { font-family: var(--font-mono); font-size: 12px; color: var(--brass); margin-bottom: 10px; }
+
+.feedback-score { font-family: var(--font-display); font-size: 34px; font-weight: 700; }
+.feedback-list { margin: 10px 0; padding-left: 20px; }
+.feedback-list li { margin-bottom: 6px; font-size: 14px; }
+.feedback-list.weak li { color: var(--maroon); }
+.feedback-list.strong li { color: var(--forest); }
+
+.source-row { padding: 10px 0; border-top: 1px dashed var(--rule); font-size: 13.5px; }
+.source-row:first-child { border-top: none; }
+.source-row a { color: var(--ink); }
+.source-status { font-family: var(--font-mono); font-size: 11px; padding: 2px 7px; border-radius: 6px; }
+.source-status.ok { background: #dcebe0; color: var(--forest); }
+.source-status.error { background: #f0dfda; color: var(--maroon); }
+.source-status.pending { background: var(--ivory-2); color: var(--ink-soft); }
+
+.disclaimer { font-size: 12.5px; color: var(--ink-soft); background: var(--ivory-2); border-radius: 8px; padding: 10px 14px; margin-top: 14px; }
+
+.loading { color: var(--ink-soft); font-size: 14px; padding: 30px 0; text-align: center; }
+.error-box { background: #f0dfda; color: var(--maroon); border-radius: 8px; padding: 12px 16px; font-size: 14px; }
