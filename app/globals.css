@@ -134,6 +134,15 @@ textarea.answer-box {
 .mnemonic-device { font-family: var(--font-display); font-size: 15px; font-weight: 700; margin-bottom: 3px; }
 .mnemonic-explanation { font-size: 13px; color: var(--ink-soft); line-height: 1.4; }
 
+.provision-card, .case-card { background: var(--ivory-2); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.provision-citation { font-family: var(--font-mono); font-size: 12.5px; font-weight: 700; color: var(--brass); margin-bottom: 3px; }
+.provision-summary { font-size: 13.5px; line-height: 1.5; }
+.case-name { font-family: var(--font-display); font-weight: 700; font-size: 14.5px; margin-bottom: 6px; }
+.case-field { font-size: 13px; line-height: 1.5; margin-bottom: 4px; }
+.case-field:last-child { margin-bottom: 0; }
+.case-field-label { font-family: var(--font-mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft); margin-right: 4px; }
+
+
 .outline-tree { margin-top: 6px; }
 .outline-node { margin-bottom: 6px; }
 .outline-node > .outline-label { display: inline-block; font-size: 13.5px; background: var(--ivory-3); border: 1px solid var(--rule); border-left: 3px solid var(--brass); border-radius: 7px; padding: 6px 10px; }
