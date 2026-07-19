@@ -80,16 +80,26 @@ const DDL = [
     last_attempt_at timestamp
   )`,
   `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS stage text NOT NULL DEFAULT 'teach'`,
-  `CREATE TABLE IF NOT EXISTS lessons (
+    `CREATE TABLE IF NOT EXISTS lessons (
     subtopic_id text PRIMARY KEY REFERENCES subtopics(id),
     teach_content text NOT NULL,
+    key_provisions jsonb NOT NULL DEFAULT '[]',
+    case_law jsonb NOT NULL DEFAULT '[]',
+    perspectives jsonb NOT NULL DEFAULT '[]',
+    answer_framework text,
     examples jsonb NOT NULL,
     exercises jsonb NOT NULL,
     mnemonics jsonb NOT NULL,
     visual_outline jsonb NOT NULL,
     generated_at timestamp NOT NULL DEFAULT now()
   )`,
+  `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS visual_image_data_uri text`,
+  `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS key_provisions jsonb NOT NULL DEFAULT '[]'`,
+  `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS case_law jsonb NOT NULL DEFAULT '[]'`,
+  `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS perspectives jsonb NOT NULL DEFAULT '[]'`,
+  `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS answer_framework text`,
 ];
+
 
 
 export async function GET(request) {
