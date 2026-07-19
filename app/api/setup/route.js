@@ -1,16 +1,7 @@
-// app/api/setup/route.js
-//
-// Visit this URL ONCE after deploying, in any browser:
-//   https://<your-app>.vercel.app/api/setup?key=<SETUP_SECRET>
-//
-// Creates every table (raw SQL, hand-matched to db/schema.js) and seeds the
-// 81 subtopics / 168 PYQs / starter sources — the browser-only replacement
-// for running `npm run db:push && npm run seed` in a terminal. Safe to
-// re-visit: CREATE TABLE IF NOT EXISTS + the same upsert/insert-if-missing
-// logic as scripts/seed.js, so it won't duplicate or wipe anything.
+export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
-import { sql, and, eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { subtopics, pyqs, sources, mastery } from "../../../db/schema.js";
 import { syllabusSeed } from "../../../db/seed/syllabus.js";
@@ -80,7 +71,7 @@ const DDL = [
     last_attempt_at timestamp
   )`,
   `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS stage text NOT NULL DEFAULT 'teach'`,
-    `CREATE TABLE IF NOT EXISTS lessons (
+  `CREATE TABLE IF NOT EXISTS lessons (
     subtopic_id text PRIMARY KEY REFERENCES subtopics(id),
     teach_content text NOT NULL,
     key_provisions jsonb NOT NULL DEFAULT '[]',
@@ -100,8 +91,6 @@ const DDL = [
   `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS answer_framework text`,
 ];
 
-
-
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
@@ -117,50 +106,40 @@ export async function GET(request) {
     }
     log.push("Tables ready.");
 
-        log.push(`Seeding ${syllabusSeed.length} subtopics...`);
-    for (const row of syllabusSeed) {
+    log.push(`Seeding ${syllabusSeed.length} subtopics (1 bulk statement)...`);
+    if (syllabusSeed.length) {
       await db
         .insert(subtopics)
-        .values(row)
-        .onConflictDoUpdate({ target: subtopics.id, set: { pyqFrequency: row.pyqFrequency } });
+        .values(syllabusSeed)
+        .onConflictDoUpdate({ target: subtopics.id, set: { pyqFrequency: sql`excluded.pyq_frequency` } });
     }
 
-    log.push("Setting up stage tracking for any new subtopics...");
-    let masteryRowsInserted = 0;
-    for (const row of syllabusSeed) {
-      const inserted = await db
-        .insert(mastery)
-        .values({ subtopicId: row.id })
-        .onConflictDoNothing({ target: mastery.subtopicId })
-        .returning({ id: mastery.subtopicId });
-      if (inserted.length > 0) masteryRowsInserted++;
-    }
-    log.push(`${masteryRowsInserted} new mastery/stage rows initialized (existing ones left untouched).`);
+    log.push("Setting up stage tracking for any new subtopics (1 bulk statement)...");
+    const masteryInserted = await db
+      .insert(mastery)
+      .values(syllabusSeed.map((row) => ({ subtopicId: row.id })))
+      .onConflictDoNothing({ target: mastery.subtopicId })
+      .returning({ id: mastery.subtopicId });
+    log.push(`${masteryInserted.length} new mastery/stage rows initialized (existing ones left untouched).`);
 
-
-    log.push(`Seeding ${pyqsSeed.length} PYQs...`);
-    for (const row of pyqsSeed) {
-      await db.insert(pyqs).values(row).onConflictDoNothing({ target: pyqs.id });
+    log.push(`Seeding ${pyqsSeed.length} PYQs (1 bulk statement)...`);
+    if (pyqsSeed.length) {
+      await db.insert(pyqs).values(pyqsSeed).onConflictDoNothing({ target: pyqs.id });
     }
 
     log.push(`Seeding ${sourcesSeed.length} starter sources...`);
-    let sourcesInserted = 0;
-    for (const row of sourcesSeed) {
-      const existing = await db
-        .select({ id: sources.id })
-        .from(sources)
-        .where(and(eq(sources.subtopicId, row.subtopicId), eq(sources.url, row.url)));
-      if (existing.length === 0) {
-        await db.insert(sources).values(row);
-        sourcesInserted++;
-      }
+    const existingSources = await db.select({ subtopicId: sources.subtopicId, url: sources.url }).from(sources);
+    const existingKeys = new Set(existingSources.map((s) => `${s.subtopicId}|${s.url}`));
+    const newSources = sourcesSeed.filter((row) => !existingKeys.has(`${row.subtopicId}|${row.url}`));
+    if (newSources.length) {
+      await db.insert(sources).values(newSources);
     }
-    log.push(`${sourcesInserted} new source rows inserted.`);
+    log.push(`${newSources.length} new source rows inserted.`);
 
     return NextResponse.json({
       status: "ok",
       log,
-      next: "Go to your app's home page — you should see 81 subtopics with mastery bars. Then visit /practice to try the adaptive loop.",
+      next: "Go to your app's home page, then tap any subtopic to go through Teach -> Grasp -> Remember -> Test.",
     });
   } catch (err) {
     console.error(err);
