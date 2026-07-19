@@ -82,7 +82,7 @@ export default function LearnPage({ params }) {
         ))}
       </div>
 
-      {stage === "teach" && (
+            {stage === "teach" && (
         <div className="card">
           <h2>Teach</h2>
           {lesson.teachContent.split("\n\n").map((para, i) => (
@@ -90,6 +90,46 @@ export default function LearnPage({ params }) {
               {para}
             </p>
           ))}
+
+          {lesson.keyProvisions?.length > 0 && (
+            <>
+              <h2 style={{ marginTop: 18 }}>Key provisions</h2>
+              {lesson.keyProvisions.map((p, i) => (
+                <div className="provision-card" key={i}>
+                  <div className="provision-citation">{p.citation}</div>
+                  <div className="provision-summary">{p.summary}</div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {lesson.caseLaw?.length > 0 && (
+            <>
+              <h2 style={{ marginTop: 18 }}>Case law</h2>
+              {lesson.caseLaw.map((c, i) => (
+                <div className="case-card" key={i}>
+                  <div className="case-name">{c.case}</div>
+                  {c.facts && (
+                    <div className="case-field">
+                      <span className="case-field-label">Facts</span> {c.facts}
+                    </div>
+                  )}
+                  {c.holding && (
+                    <div className="case-field">
+                      <span className="case-field-label">Held</span> {c.holding}
+                    </div>
+                  )}
+                  {c.significance && (
+                    <div className="case-field">
+                      <span className="case-field-label">Use it for</span> {c.significance}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div className="disclaimer">Verify exact citations/years against your own sources before using these in an actual answer.</div>
+            </>
+          )}
+
           <button className="btn btn-primary" onClick={() => goToStage("grasp")} style={{ marginTop: 10 }}>
             Continue to Grasp →
           </button>
@@ -112,11 +152,32 @@ export default function LearnPage({ params }) {
           {lesson.exercises.map((ex, i) => (
             <ExerciseCard ex={ex} key={i} />
           ))}
+
+          {lesson.perspectives?.length > 0 && (
+            <>
+              <h2 style={{ marginTop: 18 }}>Perspectives — for critical/discuss answers</h2>
+              {lesson.perspectives.map((p, i) => (
+                <div className="example-card" key={i}>
+                  <div className="example-title">{p.angle}</div>
+                  <div className="example-body">{p.explanation}</div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {lesson.answerFramework && (
+            <>
+              <h2 style={{ marginTop: 18 }}>How to answer this</h2>
+              <p style={{ fontSize: 14, lineHeight: 1.6 }}>{lesson.answerFramework}</p>
+            </>
+          )}
+
           <button className="btn btn-primary" onClick={() => goToStage("remember")} style={{ marginTop: 10 }}>
             Continue to Remember →
           </button>
         </div>
       )}
+
 
       {stage === "remember" && (
         <div className="card">
