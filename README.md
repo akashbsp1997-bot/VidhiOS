@@ -22,7 +22,7 @@ network from code execution, so:
   syntax and every import path across the whole repo.
 - ⚠️ **Written correctly but not executable here, so smoke-test after
   deploy**: anything that touches a live Postgres connection or calls the
-  real Anthropic API (i.e., most of `app/api/*`) — these are ordinary Next.js
+  real OpenRouter API (i.e., most of `app/api/*`) — these are ordinary Next.js
   + Drizzle + fetch code, not exotic, but "should work" isn't "verified
   working" until it's run against your real database and key.
 
@@ -36,10 +36,12 @@ network from code execution, so:
 
 ```bash
 cp .env.example .env.local
-# fill in DATABASE_URL and ANTHROPIC_API_KEY
+# fill in DATABASE_URL and OPENROUTER_API_KEY
 ```
 
-Get an Anthropic API key at [console.anthropic.com](https://console.anthropic.com/settings/keys).
+Get an OpenRouter API key at [openrouter.ai/keys](https://openrouter.ai/keys). The app
+defaults to a free model (`deepseek/deepseek-chat-v3.1:free` in `lib/ai/client.js`), so
+no billing is required to get started.
 
 ## 3. Create tables + seed data
 
@@ -75,7 +77,7 @@ vercel deploy --prod
 ```
 
 Then in the Vercel project settings, add the same environment variables
-(`DATABASE_URL`, `ANTHROPIC_API_KEY`, `CRON_SECRET`) under **Settings →
+(`DATABASE_URL`, `OPENROUTER_API_KEY`, `CRON_SECRET`) under **Settings →
 Environment Variables**. The weekly source-refresh cron (`vercel.json`) picks
 up automatically on deploy — check your plan's cron limits if you change the
 schedule.
@@ -94,12 +96,14 @@ git push -u origin main
 
 ## Costs to expect
 
-Every submitted answer triggers one Claude Haiku call (grading); reaching a
-new subtopic×tier combination for the first time triggers one more
-(question generation, then cached/reused). Haiku 4.5 is priced for exactly
-this kind of frequent, small call — expect this to be cheap for personal use,
-but keep an eye on [console.anthropic.com](https://console.anthropic.com) usage
-early on to calibrate.
+Every submitted answer triggers one model call (grading); reaching a new
+subtopic×tier combination for the first time triggers one more (question
+generation, then cached/reused). The default model
+(`deepseek/deepseek-chat-v3.1:free`) is free on OpenRouter, so expect $0 for
+personal use as long as you stay on a free model — free-tier models do carry
+rate limits, so if you hit those, swap `MODEL` in `lib/ai/client.js` for a
+paid OpenRouter model and keep an eye on [openrouter.ai/activity](https://openrouter.ai/activity)
+usage.
 
 ## Extending the source registry
 
@@ -120,7 +124,7 @@ subtopics. To add more:
 db/schema.js              Drizzle schema (subtopics, sources, pyqs, model_questions, attempts, mastery)
 db/seed/                  Seed data: syllabus, PYQs, starter sources
 lib/adaptive/engine.js    Pure adaptive logic (mastery, tiers, selection) — unit tested
-lib/ai/                   Anthropic API client, grading, question generation
+lib/ai/                   OpenRouter API client, grading, question generation
 lib/sources/              Fetch + text-extraction pipeline
 app/api/                  attempt (next question / grade), sources, cron
 app/                      Dashboard, practice (adaptive + per-subtopic), source browser
