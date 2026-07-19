@@ -125,9 +125,14 @@ export const lessons = pgTable("lessons", {
     .primaryKey()
     .references(() => subtopics.id),
   teachContent: text("teach_content").notNull(),
+  keyProvisions: jsonb("key_provisions").notNull().default([]),
+  caseLaw: jsonb("case_law").notNull().default([]),
+  perspectives: jsonb("perspectives").notNull().default([]),
+  answerFramework: text("answer_framework"),
   examples: jsonb("examples").notNull(),
   exercises: jsonb("exercises").notNull(),
   mnemonics: jsonb("mnemonics").notNull(),
   visualOutline: jsonb("visual_outline").notNull(),
+  visualImageDataUri: text("visual_image_data_uri"),
   generatedAt: timestamp("generated_at").notNull().defaultNow(),
 });
