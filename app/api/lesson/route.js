@@ -3,12 +3,14 @@ import { eq } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { subtopics, sources, lessons, mastery } from "../../../db/schema.js";
 import { generateLesson } from "../../../lib/ai/generateLesson.js";
+import { casesSeed } from "../../../db/seed/cases.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const subtopicId = searchParams.get("subtopicId");
+  const force = searchParams.get("force") === "true";
   if (!subtopicId) return NextResponse.json({ error: "subtopicId is required" }, { status: 400 });
 
   try {
@@ -17,24 +19,25 @@ export async function GET(request) {
     if (!subtopicRow) return NextResponse.json({ error: `Unknown subtopic: ${subtopicId}` }, { status: 404 });
 
     const existingRows = await db.select().from(lessons).where(eq(lessons.subtopicId, subtopicId));
-    if (existingRows[0]) {
+    if (existingRows[0] && !force) {
       return NextResponse.json({ subtopicId, subtopicText: subtopicRow.topicText, ...existingRows[0], cached: true });
     }
 
     const srcRows = await db.select().from(sources).where(eq(sources.subtopicId, subtopicId));
     const sourceExcerpts = srcRows.filter((s) => s.extractedText).map((s) => s.extractedText).slice(0, 2);
+    const caseAnchors = casesSeed
+      .filter((c) => c.topics.includes(subtopicId))
+      .map((c) => ({ case: c.case, point: c.point }));
 
-    const generated = await generateLesson({ subtopicText: subtopicRow.topicText, sourceExcerpts });
+    const generated = await generateLesson({ subtopicText: subtopicRow.topicText, sourceExcerpts, caseAnchors });
 
-    const [inserted] = await db
+    const [saved] = await db
       .insert(lessons)
       .values({ subtopicId, ...generated })
-      .onConflictDoNothing({ target: lessons.subtopicId })
+      .onConflictDoUpdate({ target: lessons.subtopicId, set: { ...generated, generatedAt: new Date() } })
       .returning();
 
-    const finalRows = inserted ? [inserted] : await db.select().from(lessons).where(eq(lessons.subtopicId, subtopicId));
-
-    return NextResponse.json({ subtopicId, subtopicText: subtopicRow.topicText, ...finalRows[0], cached: false });
+    return NextResponse.json({ subtopicId, subtopicText: subtopicRow.topicText, ...saved, cached: false });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });
