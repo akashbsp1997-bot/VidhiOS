@@ -112,9 +112,22 @@ export const mastery = pgTable("mastery", {
   subtopicId: text("subtopic_id")
     .primaryKey()
     .references(() => subtopics.id),
-  masteryScore: real("mastery_score").notNull().default(0), // 0-1
+  masteryScore: real("mastery_score").notNull().default(0),
   attemptsCount: integer("attempts_count").notNull().default(0),
-  currentTier: integer("current_tier").notNull().default(1), // 1-3, the difficulty ladder
-  recentScores: jsonb("recent_scores").notNull().default([]), // last ~5 scores (0-1), for tier escalation/de-escalation
+  currentTier: integer("current_tier").notNull().default(1),
+  recentScores: jsonb("recent_scores").notNull().default([]),
   lastAttemptAt: timestamp("last_attempt_at"),
+  stage: text("stage").notNull().default("teach"),
+});
+
+export const lessons = pgTable("lessons", {
+  subtopicId: text("subtopic_id")
+    .primaryKey()
+    .references(() => subtopics.id),
+  teachContent: text("teach_content").notNull(),
+  examples: jsonb("examples").notNull(),
+  exercises: jsonb("exercises").notNull(),
+  mnemonics: jsonb("mnemonics").notNull(),
+  visualOutline: jsonb("visual_outline").notNull(),
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
 });
