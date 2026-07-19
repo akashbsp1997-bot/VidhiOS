@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 
+const STAGE_LABEL = { teach: "Teach", grasp: "Grasp", remember: "Remember", test: "Test" };
+
 function groupBySection(subtopics) {
+
   const groups = {};
   for (const s of subtopics) {
     const key = `P${s.paper} \u2014 ${s.section}`;
@@ -33,7 +36,7 @@ export default function Dashboard() {
         <div className="error-box">
           {error}
           <div style={{ marginTop: 8 }}>
-            If this is a fresh deploy, run <code>npm run seed</code> against your database first — see README.md.
+            If this is a fresh deploy, visit <code>/api/setup?key=YOUR_SETUP_SECRET</code> first.
           </div>
         </div>
       </>
@@ -71,12 +74,13 @@ export default function Dashboard() {
             <div className="subtopic-row" key={s.id}>
               <span className="subtopic-code">{s.id}</span>
               <span className="subtopic-text">
-                <a href={`/practice/${s.id}`}>{s.topicText}</a>
+                <a href={`/learn/${s.id}`}>{s.topicText}</a>
                 <div className="subtopic-meta">
                   {s.pyqFrequency} PYQ appearance{s.pyqFrequency === 1 ? "" : "s"} \u00b7 {s.attemptsCount} attempted \u00b7{" "}
                   <a href={`/sources/${s.id}`}>{s.sourceCount} source{s.sourceCount === 1 ? "" : "s"}</a>
                 </div>
               </span>
+                            <span className={`stage-pill stage-${s.stage}`}>{STAGE_LABEL[s.stage]}</span>
               <span className={`tier-pill${s.currentTier === 3 ? " t3" : ""}`}>tier {s.currentTier}</span>
               <span className="bar" title={`${Math.round(s.masteryScore * 100)}% mastery`}>
                 <span style={{ width: `${Math.round(s.masteryScore * 100)}%` }} />
