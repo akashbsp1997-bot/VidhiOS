@@ -9,14 +9,14 @@ import { pyqsSeed } from "../../../db/seed/pyqs.js";
 import { sourcesSeed } from "../../../db/seed/sources.js";
 
 const DDL = [
-  `CREATE TABLE IF NOT EXISTS subtopics (
+  { name: "subtopics", sql: `CREATE TABLE IF NOT EXISTS subtopics (
     id text PRIMARY KEY,
     paper integer NOT NULL,
     section text NOT NULL,
     topic_text text NOT NULL,
     pyq_frequency integer NOT NULL DEFAULT 0
-  )`,
-  `CREATE TABLE IF NOT EXISTS sources (
+  )` },
+  { name: "sources", sql: `CREATE TABLE IF NOT EXISTS sources (
     id serial PRIMARY KEY,
     subtopic_id text NOT NULL REFERENCES subtopics(id),
     title text NOT NULL,
@@ -28,8 +28,8 @@ const DDL = [
     extracted_text text,
     status text NOT NULL DEFAULT 'pending',
     error_msg text
-  )`,
-  `CREATE TABLE IF NOT EXISTS pyqs (
+  )` },
+  { name: "pyqs", sql: `CREATE TABLE IF NOT EXISTS pyqs (
     id text PRIMARY KEY,
     paper integer NOT NULL,
     year integer NOT NULL,
@@ -39,8 +39,8 @@ const DDL = [
     marks integer NOT NULL,
     topics text[] NOT NULL,
     question_text text NOT NULL
-  )`,
-  `CREATE TABLE IF NOT EXISTS model_questions (
+  )` },
+  { name: "model_questions", sql: `CREATE TABLE IF NOT EXISTS model_questions (
     id serial PRIMARY KEY,
     subtopic_id text NOT NULL REFERENCES subtopics(id),
     difficulty_tier integer NOT NULL,
@@ -48,8 +48,8 @@ const DDL = [
     question_text text NOT NULL,
     grounded_source_ids integer[],
     created_at timestamp NOT NULL DEFAULT now()
-  )`,
-  `CREATE TABLE IF NOT EXISTS attempts (
+  )` },
+  { name: "attempts", sql: `CREATE TABLE IF NOT EXISTS attempts (
     id serial PRIMARY KEY,
     subtopic_id text NOT NULL REFERENCES subtopics(id),
     question_source text NOT NULL,
@@ -61,17 +61,17 @@ const DDL = [
     score integer,
     feedback jsonb,
     created_at timestamp NOT NULL DEFAULT now()
-  )`,
-  `CREATE TABLE IF NOT EXISTS mastery (
+  )` },
+  { name: "mastery", sql: `CREATE TABLE IF NOT EXISTS mastery (
     subtopic_id text PRIMARY KEY REFERENCES subtopics(id),
     mastery_score real NOT NULL DEFAULT 0,
     attempts_count integer NOT NULL DEFAULT 0,
     current_tier integer NOT NULL DEFAULT 1,
     recent_scores jsonb NOT NULL DEFAULT '[]',
     last_attempt_at timestamp
-  )`,
-  `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS stage text NOT NULL DEFAULT 'teach'`,
-  `CREATE TABLE IF NOT EXISTS lessons (
+  )` },
+  { name: "mastery.stage", sql: `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS stage text NOT NULL DEFAULT 'teach'` },
+  { name: "lessons", sql: `CREATE TABLE IF NOT EXISTS lessons (
     subtopic_id text PRIMARY KEY REFERENCES subtopics(id),
     teach_content text NOT NULL,
     key_provisions jsonb NOT NULL DEFAULT '[]',
@@ -83,12 +83,12 @@ const DDL = [
     mnemonics jsonb NOT NULL,
     visual_outline jsonb NOT NULL,
     generated_at timestamp NOT NULL DEFAULT now()
-  )`,
-  `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS visual_image_data_uri text`,
-  `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS key_provisions jsonb NOT NULL DEFAULT '[]'`,
-  `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS case_law jsonb NOT NULL DEFAULT '[]'`,
-  `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS perspectives jsonb NOT NULL DEFAULT '[]'`,
-  `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS answer_framework text`,
+  )` },
+  { name: "lessons.visual_image_data_uri", sql: `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS visual_image_data_uri text` },
+  { name: "lessons.key_provisions", sql: `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS key_provisions jsonb NOT NULL DEFAULT '[]'` },
+  { name: "lessons.case_law", sql: `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS case_law jsonb NOT NULL DEFAULT '[]'` },
+  { name: "lessons.perspectives", sql: `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS perspectives jsonb NOT NULL DEFAULT '[]'` },
+  { name: "lessons.answer_framework", sql: `ALTER TABLE lessons ADD COLUMN IF NOT EXISTS answer_framework text` },
 ];
 
 export async function GET(request) {
@@ -99,50 +99,68 @@ export async function GET(request) {
   }
 
   const log = [];
+  let hadError = false;
+
+  for (const step of DDL) {
+    try {
+      await db.execute(sql.raw(step.sql));
+      log.push(`OK  ddl:${step.name}`);
+    } catch (err) {
+      hadError = true;
+      log.push(`FAIL ddl:${step.name} -- ${err.message}`);
+    }
+  }
+
   try {
-    log.push("Creating tables...");
-    for (const statement of DDL) {
-      await db.execute(sql.raw(statement));
-    }
-    log.push("Tables ready.");
+    await db
+      .insert(subtopics)
+      .values(syllabusSeed)
+      .onConflictDoUpdate({ target: subtopics.id, set: { pyqFrequency: sql`excluded.pyq_frequency` } });
+    log.push(`OK  seed:subtopics (${syllabusSeed.length})`);
+  } catch (err) {
+    hadError = true;
+    log.push(`FAIL seed:subtopics -- ${err.message}`);
+  }
 
-    log.push(`Seeding ${syllabusSeed.length} subtopics (1 bulk statement)...`);
-    if (syllabusSeed.length) {
-      await db
-        .insert(subtopics)
-        .values(syllabusSeed)
-        .onConflictDoUpdate({ target: subtopics.id, set: { pyqFrequency: sql`excluded.pyq_frequency` } });
-    }
-
-    log.push("Setting up stage tracking for any new subtopics (1 bulk statement)...");
-    const masteryInserted = await db
+  try {
+    const inserted = await db
       .insert(mastery)
       .values(syllabusSeed.map((row) => ({ subtopicId: row.id })))
       .onConflictDoNothing({ target: mastery.subtopicId })
       .returning({ id: mastery.subtopicId });
-    log.push(`${masteryInserted.length} new mastery/stage rows initialized (existing ones left untouched).`);
+    log.push(`OK  seed:mastery (${inserted.length} new)`);
+  } catch (err) {
+    hadError = true;
+    log.push(`FAIL seed:mastery -- ${err.message}`);
+  }
 
-    log.push(`Seeding ${pyqsSeed.length} PYQs (1 bulk statement)...`);
-    if (pyqsSeed.length) {
-      await db.insert(pyqs).values(pyqsSeed).onConflictDoNothing({ target: pyqs.id });
-    }
+  try {
+    await db.insert(pyqs).values(pyqsSeed).onConflictDoNothing({ target: pyqs.id });
+    log.push(`OK  seed:pyqs (${pyqsSeed.length})`);
+  } catch (err) {
+    hadError = true;
+    log.push(`FAIL seed:pyqs -- ${err.message}`);
+  }
 
-    log.push(`Seeding ${sourcesSeed.length} starter sources...`);
+  try {
     const existingSources = await db.select({ subtopicId: sources.subtopicId, url: sources.url }).from(sources);
     const existingKeys = new Set(existingSources.map((s) => `${s.subtopicId}|${s.url}`));
     const newSources = sourcesSeed.filter((row) => !existingKeys.has(`${row.subtopicId}|${row.url}`));
-    if (newSources.length) {
-      await db.insert(sources).values(newSources);
-    }
-    log.push(`${newSources.length} new source rows inserted.`);
-
-    return NextResponse.json({
-      status: "ok",
-      log,
-      next: "Go to your app's home page, then tap any subtopic to go through Teach -> Grasp -> Remember -> Test.",
-    });
+    if (newSources.length) await db.insert(sources).values(newSources);
+    log.push(`OK  seed:sources (${newSources.length} new)`);
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ status: "error", error: err.message, log }, { status: 500 });
+    hadError = true;
+    log.push(`FAIL seed:sources -- ${err.message}`);
   }
+
+  return NextResponse.json(
+    {
+      status: hadError ? "partial" : "ok",
+      log,
+      next: hadError
+        ? "One or more steps failed -- read the FAIL lines above, that's the exact statement and error."
+        : "Go to your app's home page, then tap any subtopic to go through Teach -> Grasp -> Remember -> Test.",
+    },
+    { status: hadError ? 207 : 200 }
+  );
 }
