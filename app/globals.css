@@ -149,3 +149,5 @@ textarea.answer-box {
 .outline-children { margin: 6px 0 6px 18px; padding-left: 14px; border-left: 2px dotted var(--rule); }
 .outline-children .outline-label { border-left-color: var(--ink-soft); font-size: 13px; }
 .outline-children .outline-children .outline-label { border-left-color: var(--rule); font-size: 12.5px; }
+
+.visual-diagram { display: block; max-width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 10px; margin-top: 14px; }

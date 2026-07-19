@@ -39,9 +39,10 @@ cp .env.example .env.local
 # fill in DATABASE_URL and OPENROUTER_API_KEY
 ```
 
-Get an OpenRouter API key at [openrouter.ai/keys](https://openrouter.ai/keys). The app
-defaults to a free model (`deepseek/deepseek-chat-v3.1:free` in `lib/ai/client.js`), so
-no billing is required to get started.
+Get an OpenRouter API key at [openrouter.ai/keys](https://openrouter.ai/keys) — you'll
+need billing set up on your OpenRouter account since the default models
+(`anthropic/claude-haiku-4.5` for text, `google/gemini-2.5-flash-image` for
+diagrams, both in `lib/ai/client.js`) are paid. See "Costs to expect" below.
 
 ## 3. Create tables + seed data
 
@@ -96,14 +97,17 @@ git push -u origin main
 
 ## Costs to expect
 
-Every submitted answer triggers one model call (grading); reaching a new
-subtopic×tier combination for the first time triggers one more (question
-generation, then cached/reused). The default model
-(`deepseek/deepseek-chat-v3.1:free`) is free on OpenRouter, so expect $0 for
-personal use as long as you stay on a free model — free-tier models do carry
-rate limits, so if you hit those, swap `MODEL` in `lib/ai/client.js` for a
-paid OpenRouter model and keep an eye on [openrouter.ai/activity](https://openrouter.ai/activity)
-usage.
+Every submitted answer triggers one Claude Haiku call (grading); reaching a
+new subtopic×tier combination for the first time triggers one more (question
+generation), and the first visit to a subtopic's Teach stage triggers a
+lesson generation (text + one image). Routing through OpenRouter instead of
+Anthropic directly does NOT make Claude free — you're billed by OpenRouter
+for `anthropic/claude-haiku-4.5` and `google/gemini-2.5-flash-image` usage,
+just without Anthropic's prepaid-billing requirement. Haiku 4.5 is priced for
+frequent small calls, so expect this to be cheap for personal use, but keep
+an eye on [openrouter.ai/activity](https://openrouter.ai/activity) usage
+early on to calibrate — image generation in particular is priced per-image,
+not per-token, and adds up faster than the text calls.
 
 ## Extending the source registry
 
