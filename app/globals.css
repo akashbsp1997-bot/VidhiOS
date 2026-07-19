@@ -66,9 +66,9 @@ p.lede { color: var(--ink-soft); margin: 0 0 20px; font-size: 14.5px; }
 
 .subtopic-row {
   display: grid;
-  grid-template-columns: 44px 1fr auto auto;
+  grid-template-columns: 44px 1fr auto auto auto;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 12px 0;
   border-top: 1px solid var(--rule);
 }
@@ -122,3 +122,21 @@ textarea.answer-box {
 
 .loading { color: var(--ink-soft); font-size: 14px; padding: 30px 0; text-align: center; }
 .error-box { background: #f0dfda; color: var(--maroon); border-radius: 8px; padding: 12px 16px; font-size: 14px; }
+
+.stage-pill { font-family: var(--font-mono); font-size: 10px; padding: 3px 7px; border-radius: 999px; white-space: nowrap; background: var(--ivory-2); color: var(--ink-soft); }
+.stage-pill.stage-test { background: #dcebe0; color: var(--forest); }
+
+.example-card, .exercise-card, .mnemonic-card { background: var(--ivory-2); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.example-title { font-weight: 700; font-size: 13.5px; margin-bottom: 4px; color: var(--brass); }
+.example-body { font-size: 14px; line-height: 1.5; }
+.exercise-prompt { font-size: 14px; line-height: 1.5; }
+.exercise-answer { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--rule); font-size: 13.5px; color: var(--forest); line-height: 1.5; }
+.mnemonic-device { font-family: var(--font-display); font-size: 15px; font-weight: 700; margin-bottom: 3px; }
+.mnemonic-explanation { font-size: 13px; color: var(--ink-soft); line-height: 1.4; }
+
+.outline-tree { margin-top: 6px; }
+.outline-node { margin-bottom: 6px; }
+.outline-node > .outline-label { display: inline-block; font-size: 13.5px; background: var(--ivory-3); border: 1px solid var(--rule); border-left: 3px solid var(--brass); border-radius: 7px; padding: 6px 10px; }
+.outline-children { margin: 6px 0 6px 18px; padding-left: 14px; border-left: 2px dotted var(--rule); }
+.outline-children .outline-label { border-left-color: var(--ink-soft); font-size: 13px; }
+.outline-children .outline-children .outline-label { border-left-color: var(--rule); font-size: 12.5px; }
