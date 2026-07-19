@@ -12,7 +12,7 @@
 import { NextResponse } from "next/server";
 import { sql, and, eq } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
-import { subtopics, pyqs, sources } from "../../../db/schema.js";
+import { subtopics, pyqs, sources, mastery } from "../../../db/schema.js";
 import { syllabusSeed } from "../../../db/seed/syllabus.js";
 import { pyqsSeed } from "../../../db/seed/pyqs.js";
 import { sourcesSeed } from "../../../db/seed/sources.js";
@@ -79,7 +79,18 @@ const DDL = [
     recent_scores jsonb NOT NULL DEFAULT '[]',
     last_attempt_at timestamp
   )`,
+  `ALTER TABLE mastery ADD COLUMN IF NOT EXISTS stage text NOT NULL DEFAULT 'teach'`,
+  `CREATE TABLE IF NOT EXISTS lessons (
+    subtopic_id text PRIMARY KEY REFERENCES subtopics(id),
+    teach_content text NOT NULL,
+    examples jsonb NOT NULL,
+    exercises jsonb NOT NULL,
+    mnemonics jsonb NOT NULL,
+    visual_outline jsonb NOT NULL,
+    generated_at timestamp NOT NULL DEFAULT now()
+  )`,
 ];
+
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -96,13 +107,26 @@ export async function GET(request) {
     }
     log.push("Tables ready.");
 
-    log.push(`Seeding ${syllabusSeed.length} subtopics...`);
+        log.push(`Seeding ${syllabusSeed.length} subtopics...`);
     for (const row of syllabusSeed) {
       await db
         .insert(subtopics)
         .values(row)
         .onConflictDoUpdate({ target: subtopics.id, set: { pyqFrequency: row.pyqFrequency } });
     }
+
+    log.push("Setting up stage tracking for any new subtopics...");
+    let masteryRowsInserted = 0;
+    for (const row of syllabusSeed) {
+      const inserted = await db
+        .insert(mastery)
+        .values({ subtopicId: row.id })
+        .onConflictDoNothing({ target: mastery.subtopicId })
+        .returning({ id: mastery.subtopicId });
+      if (inserted.length > 0) masteryRowsInserted++;
+    }
+    log.push(`${masteryRowsInserted} new mastery/stage rows initialized (existing ones left untouched).`);
+
 
     log.push(`Seeding ${pyqsSeed.length} PYQs...`);
     for (const row of pyqsSeed) {
