@@ -192,6 +192,9 @@ export default function LearnPage({ params }) {
           <div className="outline-tree">
             <OutlineNode node={lesson.visualOutline} />
           </div>
+          {lesson.visualImageDataUri && (
+            <img src={lesson.visualImageDataUri} alt={`Concept diagram for ${subtopicId}`} className="visual-diagram" />
+          )}
           <button className="btn btn-primary" onClick={() => goToStage("test")} style={{ marginTop: 14 }}>
             Start Test →
           </button>
