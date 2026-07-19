@@ -1,2 +1,0 @@
-# VidhiOS
-Law optional upsc
