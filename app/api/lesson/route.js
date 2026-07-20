@@ -1,4 +1,11 @@
-export const maxDuration = 60;
+// 150s, not the previous 60 -- generateLesson.js runs a core call, then two
+// concurrent practice calls, then an image call, each individually bounded
+// by lib/ai/client.js's 45s AI_TIMEOUT_MS. Raised alongside the maxTokens
+// increases in generateLesson.js (finish_reason:"length" was hit live at
+// the old, lower ceilings) so a call that now legitimately takes longer to
+// finish has room to, instead of the whole route hitting Vercel's own
+// platform timeout first.
+export const maxDuration = 150;
 
 import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";

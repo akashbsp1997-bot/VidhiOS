@@ -8,6 +8,14 @@
 //      question — call GET again (keeps the two concerns separate; see
 //      docs/ARCHITECTURE.md).
 
+// Explicit, not left at the platform default -- both branches make at most
+// one AI call each (generateQuestion or gradeAnswer), each individually
+// bounded by lib/ai/client.js's 45s timeout; 90s leaves headroom above that
+// for the DB work either side without assuming the account's actual default
+// ceiling is high enough (this project has needed to raise it explicitly
+// before -- see app/api/lesson/route.js's history).
+export const maxDuration = 90;
+
 import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../lib/db.js";

@@ -48,7 +48,9 @@ export default function IngestUploadPage() {
   const [docType, setDocType] = useState("syllabus");
   const [subjectId, setSubjectId] = useState("");
   const [subjects, setSubjects] = useState([]);
+  const [mode, setMode] = useState("file"); // 'file' | 'url'
   const [file, setFile] = useState(null);
+  const [sourceUrlInput, setSourceUrlInput] = useState("");
   const [stepMsg, setStepMsg] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -151,6 +153,41 @@ export default function IngestUploadPage() {
     }
   }
 
+  // For content that's already publicly hosted (e.g. an NCERT PDF on
+  // ncert.nic.in) -- fetches server-side instead of making the operator
+  // download-then-reupload. One step, unlike the file-upload flow, since
+  // there's no browser-to-Storage leg here.
+  async function handleFetchUrl(e) {
+    e.preventDefault();
+    if (!sourceUrlInput || !subjectId) return;
+    setError(null);
+    setBusy(true);
+    try {
+      setStepMsg("Fetching and extracting…");
+      const data = await safeFetchJson(`/api/ingest/fetch-url?key=${encodeURIComponent(key)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ docType, subjectId, url: sourceUrlInput }),
+      });
+      if (data.error) throw new Error(data.error);
+
+      setStepMsg(
+        data.status === "duplicate"
+          ? "Already fetched before — this is an exact duplicate of an earlier upload."
+          : data.status === "needs_ocr"
+          ? `Extracted ~${data.charsPerPage} chars/page — too low to be a real text layer. This looks like a scanned/image PDF; OCR isn't supported yet.`
+          : `Extracted ${data.charsPerPage} chars/page across ${data.pageCount} page(s).`
+      );
+      setSourceUrlInput("");
+      loadUploads();
+    } catch (err) {
+      setError(err.message);
+      setStepMsg(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!key) {
     return (
       <div className="card">
@@ -175,7 +212,26 @@ export default function IngestUploadPage() {
 
         {error && <div className="error-box" style={{ marginBottom: 14 }}>{error}</div>}
 
-        <form onSubmit={handleUpload}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          <button
+            type="button"
+            className="btn"
+            style={mode === "file" ? { borderColor: "var(--leather)" } : {}}
+            onClick={() => setMode("file")}
+          >
+            Upload a file
+          </button>
+          <button
+            type="button"
+            className="btn"
+            style={mode === "url" ? { borderColor: "var(--leather)" } : {}}
+            onClick={() => setMode("url")}
+          >
+            Fetch from a URL
+          </button>
+        </div>
+
+        <form onSubmit={mode === "file" ? handleUpload : handleFetchUrl}>
           <label style={{ display: "block", fontSize: 13, marginBottom: 4, color: "var(--ink-soft)" }}>Document type</label>
           <select
             value={docType}
@@ -202,16 +258,38 @@ export default function IngestUploadPage() {
             ))}
           </select>
 
-          <label style={{ display: "block", fontSize: 13, marginBottom: 4, color: "var(--ink-soft)" }}>PDF file</label>
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-            style={{ width: "100%", marginBottom: 14 }}
-          />
+          {mode === "file" ? (
+            <>
+              <label style={{ display: "block", fontSize: 13, marginBottom: 4, color: "var(--ink-soft)" }}>PDF file</label>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                style={{ width: "100%", marginBottom: 14 }}
+              />
+            </>
+          ) : (
+            <>
+              <label style={{ display: "block", fontSize: 13, marginBottom: 4, color: "var(--ink-soft)" }}>
+                Public PDF URL (e.g. an NCERT textbook page)
+              </label>
+              <input
+                type="url"
+                placeholder="https://ncert.nic.in/textbook/pdf/..."
+                value={sourceUrlInput}
+                onChange={(e) => setSourceUrlInput(e.target.value)}
+                style={{ width: "100%", padding: "10px 12px", marginBottom: 14, borderRadius: 8, border: "1px solid var(--rule)" }}
+              />
+            </>
+          )}
 
-          <button className="btn btn-primary" type="submit" disabled={busy || !file || !subjectId} style={{ width: "100%" }}>
-            {busy ? "Working…" : "Upload"}
+          <button
+            className="btn btn-primary"
+            type="submit"
+            disabled={busy || !subjectId || (mode === "file" ? !file : !sourceUrlInput)}
+            style={{ width: "100%" }}
+          >
+            {busy ? "Working…" : mode === "file" ? "Upload" : "Fetch"}
           </button>
         </form>
 
@@ -238,6 +316,19 @@ export default function IngestUploadPage() {
                 {u.docType} · {u.subjectId}
                 {u.charsPerPage != null ? ` · ${u.charsPerPage} chars/page` : ""}
                 {u.pageCount ? ` · ${u.pageCount} page(s)` : ""}
+                {u.totalChunks > 1
+                  ? u.status === "structured"
+                    ? ` · ${u.totalChunks} of ${u.totalChunks} sections`
+                    : ` · section ${u.chunksProcessed + 1} of ${u.totalChunks}`
+                  : ""}
+                {u.sourceUrl && (
+                  <>
+                    {" · "}
+                    <a href={u.sourceUrl} target="_blank" rel="noreferrer">
+                      verify source
+                    </a>
+                  </>
+                )}
               </div>
               {u.errorMsg && <div style={{ fontSize: 12, color: "var(--maroon)", marginTop: 3 }}>{u.errorMsg}</div>}
               {u.status === "needs_ocr" && (
@@ -252,7 +343,13 @@ export default function IngestUploadPage() {
                   onClick={() => structureNow(u.id)}
                   disabled={structuringId === u.id}
                 >
-                  {structuringId === u.id ? "Structuring…" : u.status === "error" ? "Retry structuring" : "Structure with AI"}
+                  {structuringId === u.id
+                    ? "Structuring…"
+                    : u.status === "error"
+                    ? "Retry structuring"
+                    : u.chunksProcessed > 0
+                    ? `Structure next section (${u.chunksProcessed + 1} of ${u.totalChunks})`
+                    : "Structure with AI"}
                 </button>
               )}
               {structureResult[u.id] &&
@@ -260,8 +357,11 @@ export default function IngestUploadPage() {
                   <div style={{ fontSize: 12, color: "var(--maroon)", marginTop: 6 }}>{structureResult[u.id].error}</div>
                 ) : (
                   <div style={{ fontSize: 12, color: "var(--forest)", marginTop: 6 }}>
-                    {structureResult[u.id].itemCount} candidate item(s) ready for review.
-                    {structureResult[u.id].textTruncatedForAi ? " (Document was long — only the first part was sent to the AI.)" : ""}
+                    {structureResult[u.id].itemCount} candidate item(s) from section {structureResult[u.id].chunkIndex + 1} of{" "}
+                    {structureResult[u.id].totalChunks}.
+                    {structureResult[u.id].done
+                      ? " All sections done — ready for review."
+                      : ` ${structureResult[u.id].totalChunks - structureResult[u.id].chunksProcessed} section(s) left.`}
                   </div>
                 ))}
               {u.status === "structured" && !structureResult[u.id] && (

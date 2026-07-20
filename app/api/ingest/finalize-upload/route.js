@@ -1,12 +1,9 @@
 export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { db } from "../../../../lib/db.js";
-import { ingestUploads } from "../../../../db/schema.js";
 import { createAdminClient } from "../../../../lib/supabase/adminClient.js";
 import { isValidDocType } from "../../../../lib/ingest/docTypes.js";
-import { hashBuffer, extractPdfText } from "../../../../lib/ingest/extractPdf.js";
+import { finalizeIngestUpload } from "../../../../lib/ingest/finalizeUpload.js";
 
 const BUCKET = "ingest-uploads";
 
@@ -40,53 +37,8 @@ export async function POST(request) {
       );
     }
     const buf = Buffer.from(await fileBlob.arrayBuffer());
-    const contentHash = hashBuffer(buf);
-
-    const [existing] = await db.select({ id: ingestUploads.id }).from(ingestUploads).where(eq(ingestUploads.contentHash, contentHash));
-    if (existing) {
-      const [dupRow] = await db
-        .insert(ingestUploads)
-        .values({
-          docType,
-          subjectId,
-          storagePath,
-          originalFilename,
-          fileSizeBytes: fileSizeBytes || buf.length,
-          contentHash,
-          status: "duplicate",
-          dupOfUploadId: existing.id,
-        })
-        .returning();
-      return NextResponse.json({ status: "duplicate", uploadId: dupRow.id, dupOfUploadId: existing.id });
-    }
-
-    const { extractedText, extractedCharCount, pageCount, charsPerPage, needsOcr } = await extractPdfText(buf);
-
-    const [row] = await db
-      .insert(ingestUploads)
-      .values({
-        docType,
-        subjectId,
-        storagePath,
-        originalFilename,
-        fileSizeBytes: fileSizeBytes || buf.length,
-        contentHash,
-        pageCount,
-        extractedCharCount,
-        extractedText,
-        status: needsOcr ? "needs_ocr" : "extracted",
-        extractedAt: new Date(),
-      })
-      .returning();
-
-    return NextResponse.json({
-      status: row.status,
-      uploadId: row.id,
-      pageCount,
-      charsPerPage: Math.round(charsPerPage),
-      needsOcr,
-      textPreview: extractedText.slice(0, 500),
-    });
+    const result = await finalizeIngestUpload({ buf, docType, subjectId, storagePath, originalFilename, fileSizeBytes });
+    return NextResponse.json(result);
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });

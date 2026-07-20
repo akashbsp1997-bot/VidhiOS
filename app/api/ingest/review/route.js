@@ -34,6 +34,7 @@ export async function GET(request) {
         docType: ingestUploads.docType,
         subjectId: ingestUploads.subjectId,
         originalFilename: ingestUploads.originalFilename,
+        sourceUrl: ingestUploads.sourceUrl,
       })
       .from(ingestItems)
       .innerJoin(ingestUploads, eq(ingestItems.uploadId, ingestUploads.id))
@@ -49,7 +50,7 @@ export async function GET(request) {
       finalData: r.finalData,
       reviewStatus: r.reviewStatus,
       commitError: r.commitError,
-      upload: { id: r.uploadId, docType: r.docType, subjectId: r.subjectId, originalFilename: r.originalFilename },
+      upload: { id: r.uploadId, docType: r.docType, subjectId: r.subjectId, originalFilename: r.originalFilename, sourceUrl: r.sourceUrl },
     }));
 
     return NextResponse.json({ items });
