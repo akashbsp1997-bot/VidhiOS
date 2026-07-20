@@ -40,9 +40,8 @@ cp .env.example .env.local
 ```
 
 Get an OpenRouter API key at [openrouter.ai/keys](https://openrouter.ai/keys). Text
-generation (grading, questions, lessons) defaults to OpenRouter's free-model
-router (`openrouter/free`, picks a different free model per request from
-whatever's currently available), so no billing is required for that. The
+generation (grading, questions, lessons) defaults to a free model
+(`nvidia/nemotron-3-nano-30b-a3b:free`), so no billing is required for that. The
 diagram image generation (`google/gemini-2.5-flash-image`) is paid and needs
 OpenRouter billing set up if you want it — it fails silently (no diagram, rest
 of the lesson unaffected) without credits. See "Costs to expect" below.
@@ -104,17 +103,20 @@ Every submitted answer triggers one text model call (grading); reaching a
 new subtopic×tier combination for the first time triggers one more (question
 generation), and the first visit to a subtopic's Teach stage triggers a
 lesson generation (three text calls + one image call). Text calls default to
-`openrouter/free` on OpenRouter — a router that picks a different free model
-per request rather than one pinned model, so expect $0 for those. Two pinned
-free models were each tried and failed in turn (one hung, one stayed
-429-rate-limited even across retries) before switching to the router;
-individual free models can still be pulled from OpenRouter's free tier
-entirely without notice or be temporarily rate-limited/congested (every call
-has a 45s client-side timeout and retries a `429` up to twice, see
-`lib/ai/client.js`, so a bad response degrades to a clear error rather than a
-silent hang or an immediate failure) — check https://openrouter.ai/api/v1/models
-for current `$0`-priced entries if this router itself proves unreliable, and
-consider pinning `MODEL` in `lib/ai/client.js` to a paid OpenRouter model (this app previously ran on
+`nvidia/nemotron-3-nano-30b-a3b:free` on OpenRouter (NVIDIA's own hosted
+infrastructure), so expect $0 for those. Two other free models/routing setups
+were each tried and failed in turn first (one hung, one stayed 429-rate-limited
+even across retries, and OpenRouter's own free-model auto-router kept landing
+back on that same rate-limited one) before pinning this one; any free model
+can still be pulled from OpenRouter's free tier without notice or be
+temporarily rate-limited/congested under shared demand (every call has a 45s
+client-side timeout and retries a `429` up to twice, see `lib/ai/client.js`,
+so a bad response degrades to a clear error rather than a silent hang or an
+immediate failure) — check https://openrouter.ai/api/v1/models for current
+`$0`-priced entries if this one also proves unreliable, and consider either
+linking a personal provider API key at
+https://openrouter.ai/settings/integrations for dedicated quota, or pinning
+`MODEL` in `lib/ai/client.js` to a paid OpenRouter model (this app previously ran on
 `anthropic/claude-haiku-4.5` — routing through OpenRouter doesn't make Claude
 free, it just avoids Anthropic's own prepaid-billing requirement). The
 diagram image call (`google/gemini-2.5-flash-image`) is priced per-image, not
