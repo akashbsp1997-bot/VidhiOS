@@ -52,6 +52,9 @@ export default function IngestUploadPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [structuringId, setStructuringId] = useState(null);
+  const [structureResult, setStructureResult] = useState({}); // uploadId -> { itemCount, textTruncatedForAi } | { error }
+
   function loadUploads() {
     fetch(`/api/ingest/uploads?key=${encodeURIComponent(key)}`)
       .then((r) => r.json())
@@ -63,6 +66,25 @@ export default function IngestUploadPage() {
     if (key) loadUploads();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
+
+  async function structureNow(uploadId) {
+    setStructuringId(uploadId);
+    setStructureResult((prev) => ({ ...prev, [uploadId]: undefined }));
+    try {
+      const res = await fetch(`/api/ingest/structure?key=${encodeURIComponent(key)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ uploadId }),
+      });
+      const data = await res.json();
+      setStructureResult((prev) => ({ ...prev, [uploadId]: data.error ? { error: data.error } : data }));
+      loadUploads();
+    } catch (err) {
+      setStructureResult((prev) => ({ ...prev, [uploadId]: { error: err.message } }));
+    } finally {
+      setStructuringId(null);
+    }
+  }
 
   async function handleUpload(e) {
     e.preventDefault();
@@ -205,6 +227,30 @@ export default function IngestUploadPage() {
               {u.status === "needs_ocr" && (
                 <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 3 }}>
                   Scanned/image PDF — text extraction too low to process. OCR isn't supported yet.
+                </div>
+              )}
+              {u.status === "extracted" && (
+                <button
+                  className="btn"
+                  style={{ marginTop: 8, padding: "6px 12px", fontSize: 13 }}
+                  onClick={() => structureNow(u.id)}
+                  disabled={structuringId === u.id}
+                >
+                  {structuringId === u.id ? "Structuring…" : "Structure with AI"}
+                </button>
+              )}
+              {structureResult[u.id] &&
+                (structureResult[u.id].error ? (
+                  <div style={{ fontSize: 12, color: "var(--maroon)", marginTop: 6 }}>{structureResult[u.id].error}</div>
+                ) : (
+                  <div style={{ fontSize: 12, color: "var(--forest)", marginTop: 6 }}>
+                    {structureResult[u.id].itemCount} candidate item(s) ready for review.
+                    {structureResult[u.id].textTruncatedForAi ? " (Document was long — only the first part was sent to the AI.)" : ""}
+                  </div>
+                ))}
+              {u.status === "structured" && !structureResult[u.id] && (
+                <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 6 }}>
+                  Already structured — review page is coming in the next update.
                 </div>
               )}
             </div>
