@@ -16,6 +16,7 @@ import { chooseSubtopic, chooseQuestionPlan, updateMastery, nextTier, pushRecent
 import { gradeAnswer } from "../../../lib/ai/grade.js";
 import { generateQuestion } from "../../../lib/ai/generateQuestion.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
+import { getSubjectConfig } from "../../../lib/subjects/config.js";
 
 export async function GET(request) {
   const userId = await getSessionUserId();
@@ -82,6 +83,7 @@ export async function GET(request) {
         subtopicText: subtopicRow.topicText,
         difficultyTier: plan.difficultyTier,
         sourceExcerpts,
+        subjectConfig: getSubjectConfig(subtopicRow.subjectId),
       });
       const [inserted] = await db
         .insert(modelQuestions)
@@ -134,6 +136,7 @@ export async function POST(request) {
       marks: marks || 15,
       subtopicText: subtopicRow.topicText,
       answerText,
+      subjectConfig: getSubjectConfig(subtopicRow.subjectId),
     });
 
     await db.insert(attempts).values({
