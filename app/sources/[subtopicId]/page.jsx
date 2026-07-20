@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
+import { isStorageSentinel } from "../../../lib/ingest/storageUrl.js";
 
 // Written for Next.js 15+, where route `params` is a Promise even in client
 // components and gets unwrapped with React's `use()`. If your Next.js
@@ -11,6 +12,7 @@ export default function SourcesPage({ params }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [fetchingId, setFetchingId] = useState(null);
+  const [openingId, setOpeningId] = useState(null);
 
   function load() {
     fetch(`/api/sources?subtopicId=${encodeURIComponent(subtopicId)}`)
@@ -35,6 +37,24 @@ export default function SourcesPage({ params }) {
       .finally(() => setFetchingId(null));
   }
 
+  // Ingest-derived sources carry a "storage://ingest-uploads/<path>" sentinel
+  // instead of a real URL (the original PDF lives in a private Storage
+  // bucket) -- resolve a fresh signed URL on click rather than rendering it
+  // as a normal href, which would be a dead link.
+  async function openStorageSource(sourceId) {
+    setOpeningId(sourceId);
+    try {
+      const res = await fetch(`/api/sources/signed-url?sourceId=${sourceId}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      window.open(data.url, "_blank", "noreferrer");
+    } catch (err) {
+      alert(`Could not open this file: ${err.message}`);
+    } finally {
+      setOpeningId(null);
+    }
+  }
+
   if (error) return <div className="error-box">{error}</div>;
   if (!data) return <div className="loading">Loading sources\u2026</div>;
 
@@ -54,9 +74,20 @@ export default function SourcesPage({ params }) {
         {data.sources.map((s) => (
           <div className="source-row" key={s.id}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-              <a href={s.url} target="_blank" rel="noreferrer">
-                {s.title}
-              </a>
+              {isStorageSentinel(s.url) ? (
+                <button
+                  className="btn"
+                  style={{ padding: "4px 10px", fontSize: 13.5, border: "none", background: "none", color: "var(--ink)", textDecoration: "underline", cursor: "pointer" }}
+                  onClick={() => openStorageSource(s.id)}
+                  disabled={openingId === s.id}
+                >
+                  {openingId === s.id ? "Opening…" : s.title}
+                </button>
+              ) : (
+                <a href={s.url} target="_blank" rel="noreferrer">
+                  {s.title}
+                </a>
+              )}
               <span className={`source-status ${s.status}`}>{s.status}</span>
             </div>
             <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 3 }}>
