@@ -1,17 +1,19 @@
-// 150s, not the previous 60 -- generateLesson.js runs a core call, then two
-// concurrent practice calls, then an image call, each individually bounded
-// by lib/ai/client.js's 45s AI_TIMEOUT_MS. Raised alongside the maxTokens
-// increases in generateLesson.js (finish_reason:"length" was hit live at
-// the old, lower ceilings) so a call that now legitimately takes longer to
-// finish has room to, instead of the whole route hitting Vercel's own
-// platform timeout first.
-export const maxDuration = 150;
+// 60s, not the previous 150 -- a request now does at most ONE AI phase (see
+// STAGE_REQUIRES/nextMissingPhase below), individually bounded by
+// lib/ai/client.js's 45s AI_TIMEOUT_MS. 60s covers one full
+// timeout-and-fail attempt plus DB overhead with margin; the days of one
+// request running core + two practice calls + an image call back to back
+// (and needing 150s to have a chance of finishing) are over -- see
+// lib/ai/generateLesson.js's header comment for why that was the actual
+// root cause of this session's recurring finish_reason:"length"/timeout
+// failures, not just undersized token budgets.
+export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { subtopics, sources, lessons, mastery, subjects } from "../../../db/schema.js";
-import { generateLesson } from "../../../lib/ai/generateLesson.js";
+import { generateCoreContent, generatePracticeContent, generateLessonImage } from "../../../lib/ai/generateLesson.js";
 import { casesSeed } from "../../../db/seed/cases.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
@@ -19,10 +21,36 @@ import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
 
+// Which AI phases must exist before a given stage can render. "test" has no
+// entry (falls back to []) -- it never needed lessons content and still
+// doesn't.
+const STAGE_REQUIRES = {
+  teach: ["core"],
+  grasp: ["core", "practice"],
+  remember: ["core", "practice", "image"],
+};
+
+// Returns the single next phase that needs to run to satisfy `stage`, or
+// null if `stage` is already fully satisfied by `row`. Never returns more
+// than one phase -- a caller that jumped straight from Teach to Remember
+// (no stage-nav gating exists in the UI) gets back the *first* missing
+// phase (core, if row doesn't exist yet) and must re-fetch to discover the
+// next one, rather than this function trying to run several phases in one
+// call.
+function nextMissingPhase(row, requiredPhases, stage, force) {
+  for (const phase of requiredPhases) {
+    if (phase === "core" && (!row || (force && stage === "teach"))) return "core";
+    if (phase === "practice" && (!row?.practiceGeneratedAt || (force && stage === "grasp"))) return "practice";
+    if (phase === "image" && (!row?.visualImageDataUri || (force && stage === "remember"))) return "image";
+  }
+  return null;
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const subtopicId = searchParams.get("subtopicId");
   const force = searchParams.get("force") === "true";
+  const stage = searchParams.get("stage") || "teach";
   if (!subtopicId) return NextResponse.json({ error: "subtopicId is required" }, { status: 400 });
 
   try {
@@ -34,28 +62,74 @@ export async function GET(request) {
     const subjectDisplayName = subjectRows[0]?.displayName ?? subtopicRow.subjectId;
 
     const existingRows = await db.select().from(lessons).where(eq(lessons.subtopicId, subtopicId));
-    if (existingRows[0] && !force) {
-      return NextResponse.json({ subtopicId, subtopicText: subtopicRow.topicText, subjectDisplayName, ...existingRows[0], cached: true });
+    const row = existingRows[0];
+
+    const phase = nextMissingPhase(row, STAGE_REQUIRES[stage] ?? [], stage, force);
+
+    if (phase === null) {
+      return NextResponse.json({ subtopicId, subtopicText: subtopicRow.topicText, subjectDisplayName, ...row, ready: true, cached: true });
     }
 
-    const srcRows = await db.select().from(sources).where(eq(sources.subtopicId, subtopicId));
-    const sourceExcerpts = sortByTierPriority(srcRows.filter((s) => s.extractedText))
-      .map((s) => s.extractedText)
-      .slice(0, 2);
-    const caseAnchors = casesSeed
-      .filter((c) => c.topics.includes(subtopicId))
-      .map((c) => ({ case: c.case, point: c.point }));
-
     const subjectConfig = getSubjectConfig(subtopicRow.subjectId);
-    const generated = await generateLesson({ subtopicText: subtopicRow.topicText, sourceExcerpts, caseAnchors, subjectConfig });
+
+    if (phase === "core") {
+      const srcRows = await db.select().from(sources).where(eq(sources.subtopicId, subtopicId));
+      const sourceExcerpts = sortByTierPriority(srcRows.filter((s) => s.extractedText))
+        .map((s) => s.extractedText)
+        .slice(0, 2);
+      const caseAnchors = casesSeed
+        .filter((c) => c.topics.includes(subtopicId))
+        .map((c) => ({ case: c.case, point: c.point }));
+
+      const core = await generateCoreContent({ subtopicText: subtopicRow.topicText, sourceExcerpts, caseAnchors, subjectConfig });
+
+      const [saved] = await db
+        .insert(lessons)
+        .values({ subtopicId, ...core })
+        .onConflictDoUpdate({ target: lessons.subtopicId, set: { ...core, generatedAt: new Date() } })
+        .returning();
+
+      return NextResponse.json({
+        subtopicId,
+        subtopicText: subtopicRow.topicText,
+        subjectDisplayName,
+        ...saved,
+        ready: false,
+        nextPhase: "practice",
+      });
+    }
+
+    if (phase === "practice") {
+      const core = { teachContent: row.teachContent, keyProvisions: row.keyProvisions, caseLaw: row.caseLaw };
+      const practice = await generatePracticeContent({ subtopicText: subtopicRow.topicText, core, subjectConfig });
+
+      const [saved] = await db
+        .update(lessons)
+        .set({ ...practice, practiceGeneratedAt: new Date() })
+        .where(eq(lessons.subtopicId, subtopicId))
+        .returning();
+
+      const ready = stage !== "remember";
+      return NextResponse.json({
+        subtopicId,
+        subtopicText: subtopicRow.topicText,
+        subjectDisplayName,
+        ...saved,
+        ready,
+        nextPhase: ready ? null : "image",
+      });
+    }
+
+    // phase === "image"
+    const visualImageDataUri = await generateLessonImage({ subtopicText: subtopicRow.topicText, visualOutline: row.visualOutline });
 
     const [saved] = await db
-      .insert(lessons)
-      .values({ subtopicId, ...generated })
-      .onConflictDoUpdate({ target: lessons.subtopicId, set: { ...generated, generatedAt: new Date() } })
+      .update(lessons)
+      .set({ visualImageDataUri })
+      .where(eq(lessons.subtopicId, subtopicId))
       .returning();
 
-    return NextResponse.json({ subtopicId, subtopicText: subtopicRow.topicText, subjectDisplayName, ...saved, cached: false });
+    return NextResponse.json({ subtopicId, subtopicText: subtopicRow.topicText, subjectDisplayName, ...saved, ready: true, nextPhase: null });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });
