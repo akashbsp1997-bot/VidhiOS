@@ -39,10 +39,12 @@ cp .env.example .env.local
 # fill in DATABASE_URL and OPENROUTER_API_KEY
 ```
 
-Get an OpenRouter API key at [openrouter.ai/keys](https://openrouter.ai/keys) — you'll
-need billing set up on your OpenRouter account since the default models
-(`anthropic/claude-haiku-4.5` for text, `google/gemini-2.5-flash-image` for
-diagrams, both in `lib/ai/client.js`) are paid. See "Costs to expect" below.
+Get an OpenRouter API key at [openrouter.ai/keys](https://openrouter.ai/keys). Text
+generation (grading, questions, lessons) defaults to a free model
+(`deepseek/deepseek-chat-v3.1:free`), so no billing is required for that. The
+diagram image generation (`google/gemini-2.5-flash-image`) is paid and needs
+OpenRouter billing set up if you want it — it fails silently (no diagram, rest
+of the lesson unaffected) without credits. See "Costs to expect" below.
 
 ## 3. Create tables + seed data
 
@@ -97,17 +99,19 @@ git push -u origin main
 
 ## Costs to expect
 
-Every submitted answer triggers one Claude Haiku call (grading); reaching a
+Every submitted answer triggers one text model call (grading); reaching a
 new subtopic×tier combination for the first time triggers one more (question
 generation), and the first visit to a subtopic's Teach stage triggers a
-lesson generation (text + one image). Routing through OpenRouter instead of
-Anthropic directly does NOT make Claude free — you're billed by OpenRouter
-for `anthropic/claude-haiku-4.5` and `google/gemini-2.5-flash-image` usage,
-just without Anthropic's prepaid-billing requirement. Haiku 4.5 is priced for
-frequent small calls, so expect this to be cheap for personal use, but keep
-an eye on [openrouter.ai/activity](https://openrouter.ai/activity) usage
-early on to calibrate — image generation in particular is priced per-image,
-not per-token, and adds up faster than the text calls.
+lesson generation (three text calls + one image call). Text calls default to
+`deepseek/deepseek-chat-v3.1:free` on OpenRouter, so expect $0 for those —
+free-tier models do carry rate limits, so if you hit those, swap `MODEL` in
+`lib/ai/client.js` for a paid OpenRouter model (this app previously ran on
+`anthropic/claude-haiku-4.5` — routing through OpenRouter doesn't make Claude
+free, it just avoids Anthropic's own prepaid-billing requirement). The
+diagram image call (`google/gemini-2.5-flash-image`) is priced per-image, not
+per-token, and is NOT free — without OpenRouter credits it fails (silently;
+the rest of the lesson still generates, just without a diagram). Keep an eye
+on [openrouter.ai/activity](https://openrouter.ai/activity) if you enable it.
 
 ## Extending the source registry
 
