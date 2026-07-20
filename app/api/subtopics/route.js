@@ -1,13 +1,17 @@
 // app/api/subtopics/route.js
 import { NextResponse } from "next/server";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { subtopics, mastery, sources } from "../../../db/schema.js";
+import { getSessionUserId } from "../../../lib/supabase/server.js";
 
 export async function GET() {
+  const userId = await getSessionUserId();
+  if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+
   try {
     const allSubtopics = await db.select().from(subtopics);
-    const allMastery = await db.select().from(mastery);
+    const allMastery = await db.select().from(mastery).where(eq(mastery.userId, userId));
     const sourceCounts = await db
       .select({ subtopicId: sources.subtopicId, count: sql`count(*)`.mapWith(Number) })
       .from(sources)

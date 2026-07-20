@@ -54,7 +54,9 @@ export const subjects = pgTable("subjects", {
  */
 export const subtopics = pgTable("subtopics", {
   id: text("id").primaryKey(), // e.g. "CA1", "IL4", "CR10"
-  subjectId: text("subject_id").references(() => subjects.id), // nullable until backfilled
+  subjectId: text("subject_id")
+    .notNull()
+    .references(() => subjects.id),
   paper: integer("paper").notNull(), // 1 or 2
   section: text("section").notNull(), // e.g. "Constitutional and Administrative Law"
   topicText: text("topic_text").notNull(),
@@ -100,7 +102,9 @@ export const sources = pgTable("sources", {
  */
 export const pyqs = pgTable("pyqs", {
   id: text("id").primaryKey(), // e.g. "Y25-P1-Q1a"
-  subjectId: text("subject_id").references(() => subjects.id), // nullable until backfilled
+  subjectId: text("subject_id")
+    .notNull()
+    .references(() => subjects.id),
   paper: integer("paper").notNull(),
   year: integer("year").notNull(),
   slot: integer("slot").notNull(), // 1-8, matches the real question number on the paper
@@ -130,15 +134,15 @@ export const modelQuestions = pgTable("model_questions", {
 
 /**
  * One row per question actually answered — never batched. This is the record
- * the adaptive engine reads to decide what to serve next.
- *
- * `userId` is nullable in this migration step only -- pre-multi-user rows are
- * being discarded (not backfilled to an owner), so it becomes NOT NULL once
- * that reset runs. See app/api/setup/phase1-reset/route.js.
+ * the adaptive engine reads to decide what to serve next. Every row belongs
+ * to exactly one user (see app/api/setup/phase1-reset/route.js for how the
+ * pre-multi-user rows were cleared before this became NOT NULL).
  */
 export const attempts = pgTable("attempts", {
   id: serial("id").primaryKey(),
-  userId: uuid("user_id").references(() => authUsers.id),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => authUsers.id),
   subtopicId: text("subtopic_id")
     .notNull()
     .references(() => subtopics.id),
@@ -158,24 +162,30 @@ export const attempts = pgTable("attempts", {
  * engine both reads and updates. See lib/adaptive/engine.js for the update
  * rule.
  *
- * PK is `subtopicId` alone in this migration step only, matching the
- * single-tenant data model that predates multi-user -- it becomes a composite
- * (userId, subtopicId) PK once pre-multi-user rows are reset (PR3, coupled
- * with the auth-aware routes landing in the same deploy). `userId` is
- * nullable until then.
+ * PK is composite (userId, subtopicId) -- each user has their own mastery
+ * state per subtopic. Pre-multi-user rows were cleared (not backfilled to
+ * an owner) via app/api/setup/phase1-reset/route.js before this landed.
  */
-export const mastery = pgTable("mastery", {
-  subtopicId: text("subtopic_id")
-    .primaryKey()
-    .references(() => subtopics.id),
-  userId: uuid("user_id").references(() => authUsers.id),
-  masteryScore: real("mastery_score").notNull().default(0),
-  attemptsCount: integer("attempts_count").notNull().default(0),
-  currentTier: integer("current_tier").notNull().default(1),
-  recentScores: jsonb("recent_scores").notNull().default([]),
-  lastAttemptAt: timestamp("last_attempt_at"),
-  stage: text("stage").notNull().default("teach"),
-});
+export const mastery = pgTable(
+  "mastery",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id),
+    subtopicId: text("subtopic_id")
+      .notNull()
+      .references(() => subtopics.id),
+    masteryScore: real("mastery_score").notNull().default(0),
+    attemptsCount: integer("attempts_count").notNull().default(0),
+    currentTier: integer("current_tier").notNull().default(1),
+    recentScores: jsonb("recent_scores").notNull().default([]),
+    lastAttemptAt: timestamp("last_attempt_at"),
+    stage: text("stage").notNull().default("teach"),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.subtopicId] }),
+  })
+);
 
 export const lessons = pgTable("lessons", {
   subtopicId: text("subtopic_id")

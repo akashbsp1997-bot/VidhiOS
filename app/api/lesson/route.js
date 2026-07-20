@@ -1,11 +1,12 @@
 export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { subtopics, sources, lessons, mastery } from "../../../db/schema.js";
 import { generateLesson } from "../../../lib/ai/generateLesson.js";
 import { casesSeed } from "../../../db/seed/cases.js";
+import { getSessionUserId } from "../../../lib/supabase/server.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
 
@@ -47,17 +48,26 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  const userId = await getSessionUserId();
+  if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+
   try {
     const { subtopicId, stage } = await request.json();
     if (!subtopicId || !VALID_STAGES.includes(stage)) {
       return NextResponse.json({ error: "subtopicId and a valid stage are required" }, { status: 400 });
     }
 
-    const existingRows = await db.select().from(mastery).where(eq(mastery.subtopicId, subtopicId));
+    const existingRows = await db
+      .select()
+      .from(mastery)
+      .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
     if (existingRows[0]) {
-      await db.update(mastery).set({ stage }).where(eq(mastery.subtopicId, subtopicId));
+      await db
+        .update(mastery)
+        .set({ stage })
+        .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
     } else {
-      await db.insert(mastery).values({ subtopicId, stage });
+      await db.insert(mastery).values({ userId, subtopicId, stage });
     }
 
     return NextResponse.json({ subtopicId, stage });
