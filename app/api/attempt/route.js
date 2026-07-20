@@ -17,6 +17,7 @@ import { gradeAnswer } from "../../../lib/ai/grade.js";
 import { generateQuestion } from "../../../lib/ai/generateQuestion.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
+import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 
 export async function GET(request) {
   const userId = await getSessionUserId();
@@ -77,7 +78,9 @@ export async function GET(request) {
     } else {
       // generate: ground in whatever cached source text this subtopic has, if any
       const srcRows = await db.select().from(sources).where(eq(sources.subtopicId, subtopicId));
-      const sourceExcerpts = srcRows.filter((s) => s.extractedText).map((s) => s.extractedText).slice(0, 2);
+      const sourceExcerpts = sortByTierPriority(srcRows.filter((s) => s.extractedText))
+        .map((s) => s.extractedText)
+        .slice(0, 2);
 
       const generated = await generateQuestion({
         subtopicText: subtopicRow.topicText,

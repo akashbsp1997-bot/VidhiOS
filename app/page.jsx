@@ -5,10 +5,9 @@ import { useEffect, useState } from "react";
 const STAGE_LABEL = { teach: "Teach", grasp: "Grasp", remember: "Remember", test: "Test" };
 
 function groupBySection(subtopics) {
-
   const groups = {};
   for (const s of subtopics) {
-    const key = `P${s.paper} \u2014 ${s.section}`;
+    const key = `${s.subjectDisplayName} \u00b7 P${s.paper} \u2014 ${s.section}`;
     groups[key] = groups[key] || [];
     groups[key].push(s);
   }

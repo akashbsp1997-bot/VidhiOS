@@ -71,7 +71,7 @@ export default function LearnPage({ params }) {
 
   return (
     <>
-      <h1>{subtopicId}</h1>
+      <h1>{lesson.subjectDisplayName ? `${lesson.subjectDisplayName} · ${subtopicId}` : subtopicId}</h1>
       <p className="lede">{lesson.subtopicText}</p>
 
       <div className="segmented">

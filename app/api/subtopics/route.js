@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
-import { subtopics, mastery, sources } from "../../../db/schema.js";
+import { subtopics, mastery, sources, subjects } from "../../../db/schema.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 
 export async function GET() {
@@ -16,13 +16,17 @@ export async function GET() {
       .select({ subtopicId: sources.subtopicId, count: sql`count(*)`.mapWith(Number) })
       .from(sources)
       .groupBy(sources.subtopicId);
+    const allSubjects = await db.select().from(subjects);
 
     const masteryBySubtopic = Object.fromEntries(allMastery.map((m) => [m.subtopicId, m]));
     const sourceCountBySubtopic = Object.fromEntries(sourceCounts.map((s) => [s.subtopicId, s.count]));
+    const subjectById = Object.fromEntries(allSubjects.map((s) => [s.id, s]));
 
     const result = allSubtopics
       .map((s) => ({
         id: s.id,
+        subjectId: s.subjectId,
+        subjectDisplayName: subjectById[s.subjectId]?.displayName ?? s.subjectId,
         paper: s.paper,
         section: s.section,
         topicText: s.topicText,

@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../../../lib/db.js";
 import { sources } from "../../../../db/schema.js";
 import { fetchAndExtractText } from "../../../../lib/sources/fetchAndCache.js";
+import { isFetchableTier, maxCharsForTier } from "../../../../lib/sources/tiers.js";
 
 export async function POST(request) {
   try {
@@ -15,8 +16,15 @@ export async function POST(request) {
     const source = rows[0];
     if (!source) return NextResponse.json({ error: "Unknown source" }, { status: 404 });
 
+    if (!isFetchableTier(source.sourceTier)) {
+      return NextResponse.json(
+        { error: "This is a private_vendor tier source -- full-text fetching is intentionally disabled for licensing reasons. Only the title/URL are stored." },
+        { status: 400 }
+      );
+    }
+
     try {
-      const { extractedText, fetchedAt } = await fetchAndExtractText(source.url);
+      const { extractedText, fetchedAt } = await fetchAndExtractText(source.url, { maxChars: maxCharsForTier(source.sourceTier) });
       await db
         .update(sources)
         .set({ extractedText, fetchedAt, status: "ok", errorMsg: null })
