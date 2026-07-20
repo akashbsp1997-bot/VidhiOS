@@ -7,6 +7,7 @@ import { subtopics, sources, lessons, mastery } from "../../../db/schema.js";
 import { generateLesson } from "../../../lib/ai/generateLesson.js";
 import { casesSeed } from "../../../db/seed/cases.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
+import { getSubjectConfig } from "../../../lib/subjects/config.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
 
@@ -32,7 +33,8 @@ export async function GET(request) {
       .filter((c) => c.topics.includes(subtopicId))
       .map((c) => ({ case: c.case, point: c.point }));
 
-    const generated = await generateLesson({ subtopicText: subtopicRow.topicText, sourceExcerpts, caseAnchors });
+    const subjectConfig = getSubjectConfig(subtopicRow.subjectId);
+    const generated = await generateLesson({ subtopicText: subtopicRow.topicText, sourceExcerpts, caseAnchors, subjectConfig });
 
     const [saved] = await db
       .insert(lessons)
