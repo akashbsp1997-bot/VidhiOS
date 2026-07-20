@@ -10,8 +10,8 @@
 .env.local
 .env.*.local
 
-# drizzle-kit migration snapshots (regenerate locally; not needed if using db:push directly)
-/drizzle
+# drizzle/ migration SQL files are committed (Phase 1 switched from db:push to
+# versioned db:generate + db:migrate) -- do NOT ignore them.
 
 # logs
 npm-debug.log*
