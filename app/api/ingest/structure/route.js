@@ -1,4 +1,9 @@
-export const maxDuration = 60;
+// 120s, not the 60s used by the other admin routes here -- this route's one
+// AI call can request up to 3500 tokens (same order of magnitude as the
+// lesson-generation call that was previously observed taking ~50s+ on a
+// free-tier model, see lib/ai/generateLesson.js's history), so it needs
+// more headroom before Vercel kills the function mid-request.
+export const maxDuration = 120;
 
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";

@@ -48,6 +48,20 @@ function fieldDisplayValue(type, value) {
   return String(value);
 }
 
+// A server crash/timeout returns an HTML/plain-text error page, not our
+// JSON shape -- reading the body as text first (rather than res.json()
+// directly) means a failure like that surfaces its real content instead of
+// a bare, unhelpful "Unexpected token... is not valid JSON".
+async function safeFetchJson(url, options) {
+  const res = await fetch(url, options);
+  const raw = await res.text();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(`Server returned a non-JSON response (HTTP ${res.status}): ${raw.slice(0, 300) || "(empty body)"}`);
+  }
+}
+
 export default function IngestReviewPage() {
   const searchParams = useSearchParams();
   const key = searchParams.get("key") || "";
@@ -59,8 +73,7 @@ export default function IngestReviewPage() {
   const [actionErrors, setActionErrors] = useState({}); // itemId -> message
 
   function load() {
-    fetch(`/api/ingest/review?key=${encodeURIComponent(key)}`)
-      .then((r) => r.json())
+    safeFetchJson(`/api/ingest/review?key=${encodeURIComponent(key)}`)
       .then((d) => (d.error ? setError(d.error) : setItems(d.items)))
       .catch((e) => setError(e.message));
   }
@@ -83,14 +96,13 @@ export default function IngestReviewPage() {
     setActionErrors((prev) => ({ ...prev, [item.id]: undefined }));
     const hasEdits = edits[item.id] && Object.keys(edits[item.id]).length > 0;
     try {
-      const res = await fetch(`/api/ingest/review/action?key=${encodeURIComponent(key)}`, {
+      const data = await safeFetchJson(`/api/ingest/review/action?key=${encodeURIComponent(key)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ itemId: item.id, action, editedData: hasEdits ? currentData(item) : undefined }),
       });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setActionErrors((prev) => ({ ...prev, [item.id]: data.error || "Failed" }));
+      if (data.error) {
+        setActionErrors((prev) => ({ ...prev, [item.id]: data.error }));
       } else {
         load();
       }

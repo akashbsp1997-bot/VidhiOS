@@ -20,6 +20,21 @@ const STATUS_COLOR = {
   structured: "var(--forest)",
 };
 
+// A server crash/timeout returns an HTML/plain-text error page, not our
+// JSON shape -- reading the body as text first and parsing that (rather
+// than calling res.json() directly) means a failure like that surfaces its
+// real content instead of a bare, unhelpful "Unexpected token... is not
+// valid JSON".
+async function safeFetchJson(url, options) {
+  const res = await fetch(url, options);
+  const raw = await res.text();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(`Server returned a non-JSON response (HTTP ${res.status}): ${raw.slice(0, 300) || "(empty body)"}`);
+  }
+}
+
 // Admin-only upload page for the Phase 2 content-ingestion pipeline (see
 // docs/ARCHITECTURE.md) -- reads ?key= from its own URL the same way
 // app/login/page.jsx reads ?next=, and appends it to every /api/ingest/*
@@ -41,14 +56,14 @@ export default function IngestUploadPage() {
   const [uploadsError, setUploadsError] = useState(null);
 
   useEffect(() => {
-    fetch("/api/subjects")
-      .then((r) => r.json())
+    safeFetchJson("/api/subjects")
       .then((d) => {
         if (d.subjects) {
           setSubjects(d.subjects);
           if (d.subjects.length && !subjectId) setSubjectId(d.subjects[0].id);
         }
-      });
+      })
+      .catch(() => {}); // subject dropdown just stays empty; not worth a page-level error for this
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -56,8 +71,7 @@ export default function IngestUploadPage() {
   const [structureResult, setStructureResult] = useState({}); // uploadId -> { itemCount, textTruncatedForAi } | { error }
 
   function loadUploads() {
-    fetch(`/api/ingest/uploads?key=${encodeURIComponent(key)}`)
-      .then((r) => r.json())
+    safeFetchJson(`/api/ingest/uploads?key=${encodeURIComponent(key)}`)
       .then((d) => (d.error ? setUploadsError(d.error) : setUploads(d.uploads)))
       .catch((e) => setUploadsError(e.message));
   }
@@ -71,12 +85,11 @@ export default function IngestUploadPage() {
     setStructuringId(uploadId);
     setStructureResult((prev) => ({ ...prev, [uploadId]: undefined }));
     try {
-      const res = await fetch(`/api/ingest/structure?key=${encodeURIComponent(key)}`, {
+      const data = await safeFetchJson(`/api/ingest/structure?key=${encodeURIComponent(key)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ uploadId }),
       });
-      const data = await res.json();
       setStructureResult((prev) => ({ ...prev, [uploadId]: data.error ? { error: data.error } : data }));
       loadUploads();
     } catch (err) {
@@ -93,12 +106,11 @@ export default function IngestUploadPage() {
     setBusy(true);
     try {
       setStepMsg("Requesting upload URL…");
-      const urlRes = await fetch(`/api/ingest/upload-url?key=${encodeURIComponent(key)}`, {
+      const urlData = await safeFetchJson(`/api/ingest/upload-url?key=${encodeURIComponent(key)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ docType, subjectId, filename: file.name }),
       });
-      const urlData = await urlRes.json();
       if (urlData.error) throw new Error(urlData.error);
 
       setStepMsg("Uploading PDF…");
@@ -109,7 +121,7 @@ export default function IngestUploadPage() {
       if (uploadError) throw new Error(uploadError.message);
 
       setStepMsg("Extracting text…");
-      const finalizeRes = await fetch(`/api/ingest/finalize-upload?key=${encodeURIComponent(key)}`, {
+      const finalizeData = await safeFetchJson(`/api/ingest/finalize-upload?key=${encodeURIComponent(key)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -120,7 +132,6 @@ export default function IngestUploadPage() {
           fileSizeBytes: file.size,
         }),
       });
-      const finalizeData = await finalizeRes.json();
       if (finalizeData.error) throw new Error(finalizeData.error);
 
       setStepMsg(
