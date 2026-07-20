@@ -41,7 +41,7 @@ cp .env.example .env.local
 
 Get an OpenRouter API key at [openrouter.ai/keys](https://openrouter.ai/keys). Text
 generation (grading, questions, lessons) defaults to a free model
-(`deepseek/deepseek-chat-v3.1:free`), so no billing is required for that. The
+(`openai/gpt-oss-20b:free`), so no billing is required for that. The
 diagram image generation (`google/gemini-2.5-flash-image`) is paid and needs
 OpenRouter billing set up if you want it — it fails silently (no diagram, rest
 of the lesson unaffected) without credits. See "Costs to expect" below.
@@ -103,8 +103,11 @@ Every submitted answer triggers one text model call (grading); reaching a
 new subtopic×tier combination for the first time triggers one more (question
 generation), and the first visit to a subtopic's Teach stage triggers a
 lesson generation (three text calls + one image call). Text calls default to
-`deepseek/deepseek-chat-v3.1:free` on OpenRouter, so expect $0 for those —
-free-tier models do carry rate limits, so if you hit those, swap `MODEL` in
+`openai/gpt-oss-20b:free` on OpenRouter, so expect $0 for those — free-tier
+models do carry rate limits, and OpenRouter can pull a model from its free
+tier entirely without notice (this happened once already — check
+https://openrouter.ai/api/v1/models for current `$0`-priced entries if you
+hit a 404 "unavailable for free" error), so if you hit those, swap `MODEL` in
 `lib/ai/client.js` for a paid OpenRouter model (this app previously ran on
 `anthropic/claude-haiku-4.5` — routing through OpenRouter doesn't make Claude
 free, it just avoids Anthropic's own prepaid-billing requirement). The
