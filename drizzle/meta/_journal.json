@@ -43,6 +43,13 @@
       "when": 1784565130433,
       "tag": "0005_sharp_jean_grey",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784569649979,
+      "tag": "0006_whole_roland_deschain",
+      "breakpoints": true
     }
   ]
 }

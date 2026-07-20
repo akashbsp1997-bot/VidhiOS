@@ -274,6 +274,19 @@ export const mastery = pgTable(
   })
 );
 
+/**
+ * Populated in three lazy phases, not all at once -- see lib/ai/generateLesson.js
+ * and app/api/lesson/route.js. "core" (teachContent/keyProvisions/caseLaw) is
+ * generated on first Teach visit and always present once a row exists.
+ * "practice" (perspectives/answerFramework/examples/exercises/mnemonics/
+ * visualOutline) only runs once the student reaches Grasp -- practiceGeneratedAt
+ * is how the route knows whether that's happened yet (not an array-length
+ * check: normalizePracticeResult can legitimately return an empty array,
+ * which would look identical to "never generated" under a length check).
+ * "image" (visualImageDataUri) only runs once the student reaches Remember.
+ * The four columns below default so a core-only insert doesn't violate
+ * NOT NULL before the later phases have run.
+ */
 export const lessons = pgTable("lessons", {
   subtopicId: text("subtopic_id")
     .primaryKey()
@@ -283,10 +296,11 @@ export const lessons = pgTable("lessons", {
   caseLaw: jsonb("case_law").notNull().default([]),
   perspectives: jsonb("perspectives").notNull().default([]),
   answerFramework: text("answer_framework"),
-  examples: jsonb("examples").notNull(),
-  exercises: jsonb("exercises").notNull(),
-  mnemonics: jsonb("mnemonics").notNull(),
-  visualOutline: jsonb("visual_outline").notNull(),
+  examples: jsonb("examples").notNull().default([]),
+  exercises: jsonb("exercises").notNull().default([]),
+  mnemonics: jsonb("mnemonics").notNull().default([]),
+  visualOutline: jsonb("visual_outline").notNull().default({ label: "Overview", children: [] }),
+  practiceGeneratedAt: timestamp("practice_generated_at"),
   visualImageDataUri: text("visual_image_data_uri"),
   generatedAt: timestamp("generated_at").notNull().defaultNow(),
 });

@@ -46,7 +46,8 @@ export async function GET(request) {
           (table_name = 'ingest_uploads' and column_name = 'source_url') or
           (table_name = 'ingest_uploads' and column_name = 'chunks_processed') or
           (table_name = 'attempts' and column_name = 'user_id') or
-          (table_name = 'mastery' and column_name = 'user_id')
+          (table_name = 'mastery' and column_name = 'user_id') or
+          (table_name = 'lessons' and column_name = 'practice_generated_at')
         )
       order by table_name, column_name
     `);
