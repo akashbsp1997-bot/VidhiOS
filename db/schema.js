@@ -135,8 +135,18 @@ export const ingestUploads = pgTable("ingest_uploads", {
   pageCount: integer("page_count"), // from pdf-parse; null until extraction runs
   extractedCharCount: integer("extracted_char_count"),
   extractedText: text("extracted_text"), // full extracted text, NOT capped like sources.extractedText
-  textTruncatedForAi: boolean("text_truncated_for_ai").notNull().default(false), // true if lib/ingest/structure.js had to cut this before the AI call
-  status: text("status").notNull().default("uploaded"), // uploaded -> extracted -> structured | needs_ocr | duplicate | error
+  textTruncatedForAi: boolean("text_truncated_for_ai").notNull().default(false), // legacy -- see chunksProcessed/totalChunks, which superseded this once /api/ingest/structure started chunking instead of hard-truncating
+  // A document longer than its docType's textCap (lib/ingest/config.js) gets
+  // processed one chunk at a time -- one /api/ingest/structure call per
+  // chunk, not one call for the whole (possibly huge) document, since a
+  // single AI call has real per-request size/duration/rate-limit costs on
+  // the free tier. totalChunks is computed and stored on the first
+  // structure call; chunksProcessed only increments on a SUCCESSFUL chunk,
+  // so a failed attempt retries the same chunk rather than skipping it or
+  // losing earlier chunks' already-inserted ingestItems.
+  totalChunks: integer("total_chunks"),
+  chunksProcessed: integer("chunks_processed").notNull().default(0),
+  status: text("status").notNull().default("uploaded"), // uploaded -> extracted -> structured | needs_ocr | duplicate | error ("extracted" also covers "more chunks left to structure")
   dupOfUploadId: integer("dup_of_upload_id"), // self-referencing; set when status = 'duplicate'
   errorMsg: text("error_msg"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

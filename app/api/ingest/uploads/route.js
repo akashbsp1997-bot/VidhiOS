@@ -34,6 +34,8 @@ export async function GET(request) {
         charsPerPage: r.pageCount ? Math.round((r.extractedCharCount || 0) / r.pageCount) : null,
         errorMsg: r.errorMsg,
         dupOfUploadId: r.dupOfUploadId,
+        chunksProcessed: r.chunksProcessed,
+        totalChunks: r.totalChunks,
         createdAt: r.createdAt,
       })),
     });

@@ -316,6 +316,11 @@ export default function IngestUploadPage() {
                 {u.docType} · {u.subjectId}
                 {u.charsPerPage != null ? ` · ${u.charsPerPage} chars/page` : ""}
                 {u.pageCount ? ` · ${u.pageCount} page(s)` : ""}
+                {u.totalChunks > 1
+                  ? u.status === "structured"
+                    ? ` · ${u.totalChunks} of ${u.totalChunks} sections`
+                    : ` · section ${u.chunksProcessed + 1} of ${u.totalChunks}`
+                  : ""}
                 {u.sourceUrl && (
                   <>
                     {" · "}
@@ -338,7 +343,13 @@ export default function IngestUploadPage() {
                   onClick={() => structureNow(u.id)}
                   disabled={structuringId === u.id}
                 >
-                  {structuringId === u.id ? "Structuring…" : u.status === "error" ? "Retry structuring" : "Structure with AI"}
+                  {structuringId === u.id
+                    ? "Structuring…"
+                    : u.status === "error"
+                    ? "Retry structuring"
+                    : u.chunksProcessed > 0
+                    ? `Structure next section (${u.chunksProcessed + 1} of ${u.totalChunks})`
+                    : "Structure with AI"}
                 </button>
               )}
               {structureResult[u.id] &&
@@ -346,8 +357,11 @@ export default function IngestUploadPage() {
                   <div style={{ fontSize: 12, color: "var(--maroon)", marginTop: 6 }}>{structureResult[u.id].error}</div>
                 ) : (
                   <div style={{ fontSize: 12, color: "var(--forest)", marginTop: 6 }}>
-                    {structureResult[u.id].itemCount} candidate item(s) ready for review.
-                    {structureResult[u.id].textTruncatedForAi ? " (Document was long — only the first part was sent to the AI.)" : ""}
+                    {structureResult[u.id].itemCount} candidate item(s) from section {structureResult[u.id].chunkIndex + 1} of{" "}
+                    {structureResult[u.id].totalChunks}.
+                    {structureResult[u.id].done
+                      ? " All sections done — ready for review."
+                      : ` ${structureResult[u.id].totalChunks - structureResult[u.id].chunksProcessed} section(s) left.`}
                   </div>
                 ))}
               {u.status === "structured" && !structureResult[u.id] && (
