@@ -41,7 +41,7 @@ cp .env.example .env.local
 
 Get an OpenRouter API key at [openrouter.ai/keys](https://openrouter.ai/keys). Text
 generation (grading, questions, lessons) defaults to a free model
-(`openai/gpt-oss-20b:free`), so no billing is required for that. The
+(`google/gemma-4-31b-it:free`), so no billing is required for that. The
 diagram image generation (`google/gemini-2.5-flash-image`) is paid and needs
 OpenRouter billing set up if you want it — it fails silently (no diagram, rest
 of the lesson unaffected) without credits. See "Costs to expect" below.
@@ -103,12 +103,14 @@ Every submitted answer triggers one text model call (grading); reaching a
 new subtopic×tier combination for the first time triggers one more (question
 generation), and the first visit to a subtopic's Teach stage triggers a
 lesson generation (three text calls + one image call). Text calls default to
-`openai/gpt-oss-20b:free` on OpenRouter, so expect $0 for those — free-tier
-models do carry rate limits, and OpenRouter can pull a model from its free
-tier entirely without notice (this happened once already — check
-https://openrouter.ai/api/v1/models for current `$0`-priced entries if you
-hit a 404 "unavailable for free" error), so if you hit those, swap `MODEL` in
-`lib/ai/client.js` for a paid OpenRouter model (this app previously ran on
+`google/gemma-4-31b-it:free` on OpenRouter, so expect $0 for those — free-tier
+models do carry rate limits, can be pulled from OpenRouter's free tier
+entirely without notice (this happened once already), and can also just be
+slow/congested under load (every call now has a 45s client-side timeout, see
+`lib/ai/client.js`, so a bad model degrades to a clear error rather than a
+silent hang) — check https://openrouter.ai/api/v1/models for current
+`$0`-priced entries if you hit either failure mode, so if you hit those, swap
+`MODEL` in `lib/ai/client.js` for a paid OpenRouter model (this app previously ran on
 `anthropic/claude-haiku-4.5` — routing through OpenRouter doesn't make Claude
 free, it just avoids Anthropic's own prepaid-billing requirement). The
 diagram image call (`google/gemini-2.5-flash-image`) is priced per-image, not
