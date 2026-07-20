@@ -8,10 +8,11 @@
 // docs/ARCHITECTURE.md for why).
 
 import { NextResponse } from "next/server";
-import { or, isNull, lt, sql } from "drizzle-orm";
+import { and, or, isNull, ne, lt, sql } from "drizzle-orm";
 import { db } from "../../../../lib/db.js";
 import { sources } from "../../../../db/schema.js";
 import { fetchAndExtractText } from "../../../../lib/sources/fetchAndCache.js";
+import { maxCharsForTier } from "../../../../lib/sources/tiers.js";
 
 const STALE_DAYS = 30;
 const MAX_PER_RUN = 15;
@@ -28,13 +29,23 @@ export async function GET(request) {
   const candidates = await db
     .select()
     .from(sources)
-    .where(or(isNull(sources.fetchedAt), sql`${sources.status} = 'error'`, lt(sources.fetchedAt, staleCutoff)))
+    .where(
+      and(
+        or(isNull(sources.fetchedAt), sql`${sources.status} = 'error'`, lt(sources.fetchedAt, staleCutoff)),
+        // private_vendor rows never get fetched at all (see lib/sources/tiers.js)
+        // -- excluded here, not just skipped after the fact, so they never
+        // eat one of MAX_PER_RUN's slots or get marked "error" for lacking
+        // extraction. Untiered (NULL) rows predate this column and stay
+        // included, same as before.
+        or(isNull(sources.sourceTier), ne(sources.sourceTier, "private_vendor"))
+      )
+    )
     .limit(MAX_PER_RUN);
 
   const results = [];
   for (const source of candidates) {
     try {
-      const { extractedText, fetchedAt } = await fetchAndExtractText(source.url);
+      const { extractedText, fetchedAt } = await fetchAndExtractText(source.url, { maxChars: maxCharsForTier(source.sourceTier) });
       await db
         .update(sources)
         .set({ extractedText, fetchedAt, status: "ok", errorMsg: null })

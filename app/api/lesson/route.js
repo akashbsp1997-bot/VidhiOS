@@ -8,6 +8,7 @@ import { generateLesson } from "../../../lib/ai/generateLesson.js";
 import { casesSeed } from "../../../db/seed/cases.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
+import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
 
@@ -28,7 +29,9 @@ export async function GET(request) {
     }
 
     const srcRows = await db.select().from(sources).where(eq(sources.subtopicId, subtopicId));
-    const sourceExcerpts = srcRows.filter((s) => s.extractedText).map((s) => s.extractedText).slice(0, 2);
+    const sourceExcerpts = sortByTierPriority(srcRows.filter((s) => s.extractedText))
+      .map((s) => s.extractedText)
+      .slice(0, 2);
     const caseAnchors = casesSeed
       .filter((c) => c.topics.includes(subtopicId))
       .map((c) => ({ case: c.case, point: c.point }));
