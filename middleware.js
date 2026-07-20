@@ -12,7 +12,11 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 const PUBLIC_PATHS = ["/login", "/auth/callback"];
-const PUBLIC_API_PREFIXES = ["/api/setup", "/api/migrate", "/api/cron"];
+// "/api/ingest" is gated by its own SETUP_SECRET check (see app/api/ingest/*),
+// same as "/api/setup"/"/api/migrate" -- it's called by app/ingest/* pages
+// that already require login, but the underlying admin operation itself is
+// operator-secret-gated, not session-gated, so it's listed here too.
+const PUBLIC_API_PREFIXES = ["/api/setup", "/api/migrate", "/api/cron", "/api/ingest"];
 
 export async function middleware(request) {
   const { pathname } = request.nextUrl;
