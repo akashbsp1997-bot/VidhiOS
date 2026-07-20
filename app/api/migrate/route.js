@@ -30,8 +30,9 @@ export async function GET(request) {
     return NextResponse.json({ status: "error", message: err.message }, { status: 500 });
   }
 
-  // Report the new Phase 1 columns' presence so success is verifiable from
-  // the HTTP response alone, without needing a separate DB connection.
+  // Report new columns'/tables' presence so success is verifiable from the
+  // HTTP response alone, without needing a separate DB connection. Extended
+  // for Phase 2 (see db/schema.js's ingestUploads/ingestItems/sources.storageUploadId).
   try {
     const cols = await db.execute(sql`
       select table_name, column_name
@@ -41,19 +42,23 @@ export async function GET(request) {
           (table_name = 'subtopics' and column_name = 'subject_id') or
           (table_name = 'pyqs' and column_name = 'subject_id') or
           (table_name = 'sources' and column_name = 'source_tier') or
+          (table_name = 'sources' and column_name = 'storage_upload_id') or
           (table_name = 'attempts' and column_name = 'user_id') or
           (table_name = 'mastery' and column_name = 'user_id')
         )
       order by table_name, column_name
     `);
-    const subjectsTable = await db.execute(sql`
+    const tables = await db.execute(sql`
       select table_name from information_schema.tables
-      where table_schema = 'public' and table_name = 'subjects'
+      where table_schema = 'public'
+        and table_name in ('subjects', 'ingest_uploads', 'ingest_items')
     `);
+    const tableNames = tables.map((r) => r.table_name);
     return NextResponse.json({
       status: "ok",
       message: "Migrations applied (or already up to date).",
-      subjectsTableExists: subjectsTable.length > 0,
+      subjectsTableExists: tableNames.includes("subjects"),
+      ingestTablesFound: tableNames.filter((n) => n.startsWith("ingest_")),
       newColumnsFound: cols.map((r) => `${r.table_name}.${r.column_name}`),
     });
   } catch (err) {

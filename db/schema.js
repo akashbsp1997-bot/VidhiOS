@@ -84,16 +84,81 @@ export const sources = pgTable("sources", {
     .notNull()
     .references(() => subtopics.id),
   title: text("title").notNull(),
+  // Normally a real http(s) URL. Rows created from an ingested upload (see
+  // ingestUploads below) instead carry the sentinel "storage://ingest-uploads/<path>"
+  // -- url stays NOT NULL either way so every other reader of this column
+  // (app/sources/[subtopicId]/page.jsx, lib/sources/*) doesn't need a null
+  // check; that page special-cases the storage:// prefix and resolves a
+  // fresh signed URL via /api/sources/signed-url instead of rendering it
+  // as a normal href.
   url: text("url").notNull(),
   sourceType: text("source_type").notNull(), // 'bare_act' | 'judgment' | 'treaty' | 'commission_report' | 'gazette' | 'press_release' | 'other'
   sourceTier: text("source_tier"), // 'ncert' | 'official' | 'newspaper' | 'private_vendor'
   official: boolean("official").notNull().default(true),
   addedAt: timestamp("added_at").notNull().defaultNow(),
+  // Set only for rows created via the ingestion pipeline (app/api/ingest/*) --
+  // null for every manually-seeded/URL-fetched row. Lets /api/sources/signed-url
+  // find the backing Storage object without parsing the storage:// sentinel.
+  storageUploadId: integer("storage_upload_id").references(() => ingestUploads.id),
   // --- cache, populated by lib/sources/fetchAndCache.js ---
   fetchedAt: timestamp("fetched_at"),
   extractedText: text("extracted_text"), // truncated plain-text extract, ~8-10k chars
   status: text("status").notNull().default("pending"), // 'pending' | 'ok' | 'error'
   errorMsg: text("error_msg"),
+});
+
+/**
+ * One row per PDF uploaded through the ingestion pipeline (app/api/ingest/*),
+ * created only after the bytes are already confirmed present in the private
+ * 'ingest-uploads' Supabase Storage bucket -- so a row here always has a real
+ * backing object, never a dangling reference. The PDF itself is the
+ * permanent backup; this row tracks status through extraction and AI
+ * structuring. See docs/ARCHITECTURE.md (Phase 2) for the full pipeline.
+ */
+export const ingestUploads = pgTable("ingest_uploads", {
+  id: serial("id").primaryKey(),
+  docType: text("doc_type").notNull(), // 'syllabus' | 'pyq_paper' | 'ncert_chapter' | 'newspaper_clipping'
+  subjectId: text("subject_id")
+    .notNull()
+    .references(() => subjects.id),
+  storagePath: text("storage_path").notNull(), // object key within the 'ingest-uploads' bucket
+  originalFilename: text("original_filename").notNull(),
+  fileSizeBytes: integer("file_size_bytes").notNull(),
+  contentHash: text("content_hash").notNull(), // sha256 of the raw PDF bytes -- exact-duplicate detection
+  pageCount: integer("page_count"), // from pdf-parse; null until extraction runs
+  extractedCharCount: integer("extracted_char_count"),
+  extractedText: text("extracted_text"), // full extracted text, NOT capped like sources.extractedText
+  textTruncatedForAi: boolean("text_truncated_for_ai").notNull().default(false), // true if lib/ingest/structure.js had to cut this before the AI call
+  status: text("status").notNull().default("uploaded"), // uploaded -> extracted -> structured | needs_ocr | duplicate | error
+  dupOfUploadId: integer("dup_of_upload_id"), // self-referencing; set when status = 'duplicate'
+  errorMsg: text("error_msg"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  extractedAt: timestamp("extracted_at"),
+  structuredAt: timestamp("structured_at"),
+});
+
+/**
+ * One AI-suggested candidate record per row, awaiting operator review --
+ * never written to subtopics/pyqs/sources until approved. itemType decides
+ * which live table a commit targets (see lib/ingest/commit.js); it's set
+ * from the upload's docType via a fixed mapping, never chosen by the AI.
+ */
+export const ingestItems = pgTable("ingest_items", {
+  id: serial("id").primaryKey(),
+  uploadId: integer("upload_id")
+    .notNull()
+    .references(() => ingestUploads.id),
+  itemType: text("item_type").notNull(), // 'subtopic' | 'pyq' | 'source'
+  suggestedSubtopicId: text("suggested_subtopic_id"), // AI's best-guess match against an EXISTING subtopics.id -- not a DB FK, since it may not exist yet
+  suggestedSubtopicIsNew: boolean("suggested_subtopic_is_new").notNull().default(false),
+  suggestedData: jsonb("suggested_data").notNull(), // raw AI output, shaped per itemType -- see lib/ingest/config.js
+  finalData: jsonb("final_data"), // operator-edited version; falls back to suggestedData at commit time
+  reviewStatus: text("review_status").notNull().default("pending"), // 'pending' | 'approved' | 'rejected'
+  commitError: text("commit_error"), // set if an approve attempt's commit step failed -- reviewStatus stays 'pending' so it's retryable, never silently dropped
+  committedTable: text("committed_table"), // 'subtopics' | 'pyqs' | 'sources', set only on a successful commit
+  committedId: text("committed_id"), // the live row's PK, as text
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 /**
