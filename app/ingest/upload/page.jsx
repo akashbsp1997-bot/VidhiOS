@@ -154,7 +154,12 @@ export default function IngestUploadPage() {
   return (
     <>
       <div className="card">
-        <h1>Upload content</h1>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <h1>Upload content</h1>
+          <a href={`/ingest/review?key=${encodeURIComponent(key)}`} style={{ fontSize: 13.5 }}>
+            Review pending →
+          </a>
+        </div>
         <p className="lede">Syllabus, PYQ papers, NCERT chapters, or newspaper clippings — text-layer PDFs only for now.</p>
 
         {error && <div className="error-box" style={{ marginBottom: 14 }}>{error}</div>}
@@ -250,7 +255,8 @@ export default function IngestUploadPage() {
                 ))}
               {u.status === "structured" && !structureResult[u.id] && (
                 <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 6 }}>
-                  Already structured — review page is coming in the next update.
+                  Already structured —{" "}
+                  <a href={`/ingest/review?key=${encodeURIComponent(key)}`}>review candidates</a>.
                 </div>
               )}
             </div>
