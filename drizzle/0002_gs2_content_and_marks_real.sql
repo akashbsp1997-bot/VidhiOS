@@ -1,0 +1,1 @@
+ALTER TABLE "pyqs" ALTER COLUMN "marks" SET DATA TYPE real;
