@@ -15,6 +15,13 @@
       "when": 1784519703471,
       "tag": "0001_phase1_tighten_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784528465852,
+      "tag": "0002_gs2_content_and_marks_real",
+      "breakpoints": true
     }
   ]
 }

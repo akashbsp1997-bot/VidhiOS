@@ -97,8 +97,13 @@ export const sources = pgTable("sources", {
 });
 
 /**
- * The 168 real UPSC CSE Law optional PYQs (2023-2025, Paper I & II), carried over
- * verbatim from VidhiOS. `topics` holds one or more subtopic codes.
+ * Real UPSC CSE Mains PYQs across subjects (Law Optional 2023-2025, GS Paper
+ * II 2015-2025, more to follow). `topics` holds one or more subtopic codes.
+ *
+ * `marks` is `real`, not `integer` -- GS papers used a uniform 12.5-mark
+ * format (250/20 questions) through 2016 before switching to the current
+ * 10/15 split; storing that as a rounded integer would misrepresent a real
+ * historical paper to anyone using this for exam prep.
  */
 export const pyqs = pgTable("pyqs", {
   id: text("id").primaryKey(), // e.g. "Y25-P1-Q1a"
@@ -107,10 +112,10 @@ export const pyqs = pgTable("pyqs", {
     .references(() => subjects.id),
   paper: integer("paper").notNull(),
   year: integer("year").notNull(),
-  slot: integer("slot").notNull(), // 1-8, matches the real question number on the paper
+  slot: integer("slot").notNull(), // matches the real question number on the paper
   sec: text("sec").notNull(), // "A" | "B"
-  sub: text("sub").notNull(), // "a".."e"
-  marks: integer("marks").notNull(),
+  sub: text("sub").notNull(), // "a".."e"; a single, non-compound question uses "a"
+  marks: real("marks").notNull(),
   topics: text("topics").array().notNull(),
   questionText: text("question_text").notNull(),
 });
