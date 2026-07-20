@@ -9,14 +9,18 @@
 //      docs/ARCHITECTURE.md).
 
 import { NextResponse } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { subtopics, mastery, pyqs, modelQuestions, attempts, sources } from "../../../db/schema.js";
 import { chooseSubtopic, chooseQuestionPlan, updateMastery, nextTier, pushRecentScore } from "../../../lib/adaptive/engine.js";
 import { gradeAnswer } from "../../../lib/ai/grade.js";
 import { generateQuestion } from "../../../lib/ai/generateQuestion.js";
+import { getSessionUserId } from "../../../lib/supabase/server.js";
 
 export async function GET(request) {
+  const userId = await getSessionUserId();
+  if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const forcedSubtopicId = searchParams.get("subtopicId") || undefined;
 
@@ -28,7 +32,7 @@ export async function GET(request) {
         { status: 404 }
       );
     }
-    const allMastery = await db.select().from(mastery);
+    const allMastery = await db.select().from(mastery).where(eq(mastery.userId, userId));
     const masteryBySubtopic = Object.fromEntries(allMastery.map((m) => [m.subtopicId, m]));
 
     const subtopicStates = allSubtopics.map((s) => ({
@@ -49,7 +53,7 @@ export async function GET(request) {
     const seenRows = await db
       .select({ id: attempts.questionRefId })
       .from(attempts)
-      .where(eq(attempts.subtopicId, subtopicId));
+      .where(and(eq(attempts.subtopicId, subtopicId), eq(attempts.userId, userId)));
     const seenQuestionRefIds = seenRows.map((r) => r.id);
 
     const plan = chooseQuestionPlan({ tier, seenQuestionRefIds, pyqPool, modelPool });
@@ -110,6 +114,9 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  const userId = await getSessionUserId();
+  if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+
   try {
     const body = await request.json();
     const { subtopicId, questionSource, questionRefId, questionTextSnapshot, difficultyTier, marks, answerText } = body || {};
@@ -130,6 +137,7 @@ export async function POST(request) {
     });
 
     await db.insert(attempts).values({
+      userId,
       subtopicId,
       questionSource: questionSource || "pyq",
       questionRefId: String(questionRefId),
@@ -141,7 +149,10 @@ export async function POST(request) {
       feedback,
     });
 
-    const existingRows = await db.select().from(mastery).where(eq(mastery.subtopicId, subtopicId));
+    const existingRows = await db
+      .select()
+      .from(mastery)
+      .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
     const existing = existingRows[0];
     const attemptsSoFar = existing?.attemptsCount ?? 0;
     const oldMastery = existing?.masteryScore ?? 0;
@@ -160,9 +171,10 @@ export async function POST(request) {
           recentScores,
           lastAttemptAt: new Date(),
         })
-        .where(eq(mastery.subtopicId, subtopicId));
+        .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
     } else {
       await db.insert(mastery).values({
+        userId,
         subtopicId,
         masteryScore: newMasteryScore,
         attemptsCount: 1,
