@@ -134,7 +134,7 @@ export const modelQuestions = pgTable("model_questions", {
  *
  * `userId` is nullable in this migration step only -- pre-multi-user rows are
  * being discarded (not backfilled to an owner), so it becomes NOT NULL once
- * that reset runs. See scripts/migrate-phase1.js.
+ * that reset runs. See app/api/setup/phase1-reset/route.js.
  */
 export const attempts = pgTable("attempts", {
   id: serial("id").primaryKey(),
