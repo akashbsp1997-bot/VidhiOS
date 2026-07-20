@@ -13,10 +13,14 @@ import { structureUpload } from "../../../../lib/ingest/structure.js";
 
 // Turns one extracted upload into candidate ingestItems rows -- the one AI
 // call per document (see lib/ingest/structure.js). Requires the upload to
-// already be status="extracted" (i.e. finalize-upload ran and it wasn't
-// flagged needs_ocr/duplicate/error); nothing here is written to a live
-// subtopics/pyqs/sources table -- that only happens once the operator
-// approves an item in a later PR's review UI.
+// be status="extracted" OR "error" -- "error" is included deliberately so a
+// transient AI failure (timeout/rate-limit) is retryable from the same
+// upload, not a dead end; without this, a single failed attempt would
+// permanently block ever calling this again for that upload (found live:
+// several retries after model swaps were silently rejected by this exact
+// check before it allowed "error" through). Nothing here is written to a
+// live subtopics/pyqs/sources table -- that only happens once the operator
+// approves an item in the review UI.
 export async function POST(request) {
   const { searchParams } = new URL(request.url);
   const key = searchParams.get("key");
@@ -30,9 +34,9 @@ export async function POST(request) {
 
     const [upload] = await db.select().from(ingestUploads).where(eq(ingestUploads.id, uploadId));
     if (!upload) return NextResponse.json({ error: `Unknown uploadId ${uploadId}` }, { status: 404 });
-    if (upload.status !== "extracted") {
+    if (upload.status !== "extracted" && upload.status !== "error") {
       return NextResponse.json(
-        { error: `Upload status is "${upload.status}", not "extracted" -- ${upload.status === "needs_ocr" ? "this PDF has no usable text layer, OCR isn't supported yet." : upload.status === "duplicate" ? "this is a duplicate of an earlier upload." : "check errorMsg on the upload."}` },
+        { error: `Upload status is "${upload.status}" -- ${upload.status === "needs_ocr" ? "this PDF has no usable text layer, OCR isn't supported yet." : upload.status === "duplicate" ? "this is a duplicate of an earlier upload." : upload.status === "structured" ? "already structured -- see the review page." : "not ready to structure yet."}` },
         { status: 400 }
       );
     }
@@ -65,7 +69,7 @@ export async function POST(request) {
 
     await db
       .update(ingestUploads)
-      .set({ status: "structured", structuredAt: new Date(), textTruncatedForAi })
+      .set({ status: "structured", structuredAt: new Date(), textTruncatedForAi, errorMsg: null })
       .where(eq(ingestUploads.id, uploadId));
 
     return NextResponse.json({ status: "structured", itemCount: items.length, textTruncatedForAi });
