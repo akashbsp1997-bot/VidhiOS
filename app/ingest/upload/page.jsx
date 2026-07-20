@@ -245,14 +245,14 @@ export default function IngestUploadPage() {
                   Scanned/image PDF — text extraction too low to process. OCR isn't supported yet.
                 </div>
               )}
-              {u.status === "extracted" && (
+              {(u.status === "extracted" || u.status === "error") && (
                 <button
                   className="btn"
                   style={{ marginTop: 8, padding: "6px 12px", fontSize: 13 }}
                   onClick={() => structureNow(u.id)}
                   disabled={structuringId === u.id}
                 >
-                  {structuringId === u.id ? "Structuring…" : "Structure with AI"}
+                  {structuringId === u.id ? "Structuring…" : u.status === "error" ? "Retry structuring" : "Structure with AI"}
                 </button>
               )}
               {structureResult[u.id] &&
