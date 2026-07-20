@@ -123,6 +123,13 @@ export const ingestUploads = pgTable("ingest_uploads", {
     .references(() => subjects.id),
   storagePath: text("storage_path").notNull(), // object key within the 'ingest-uploads' bucket
   originalFilename: text("original_filename").notNull(),
+  // Set only when this upload came from app/api/ingest/fetch-url (fetching
+  // a public PDF URL server-side) rather than a browser file upload -- kept
+  // for provenance, so the operator can click through and verify a
+  // candidate against its real public source (e.g. ncert.nic.in) before
+  // approving it, same spirit as sources.url for hand-registered sources.
+  // Null for browser-uploaded files, which have no such public origin.
+  sourceUrl: text("source_url"),
   fileSizeBytes: integer("file_size_bytes").notNull(),
   contentHash: text("content_hash").notNull(), // sha256 of the raw PDF bytes -- exact-duplicate detection
   pageCount: integer("page_count"), // from pdf-parse; null until extraction runs

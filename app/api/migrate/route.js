@@ -43,6 +43,7 @@ export async function GET(request) {
           (table_name = 'pyqs' and column_name = 'subject_id') or
           (table_name = 'sources' and column_name = 'source_tier') or
           (table_name = 'sources' and column_name = 'storage_upload_id') or
+          (table_name = 'ingest_uploads' and column_name = 'source_url') or
           (table_name = 'attempts' and column_name = 'user_id') or
           (table_name = 'mastery' and column_name = 'user_id')
         )

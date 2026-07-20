@@ -28,6 +28,7 @@ export async function GET(request) {
         docType: r.docType,
         subjectId: r.subjectId,
         originalFilename: r.originalFilename,
+        sourceUrl: r.sourceUrl,
         status: r.status,
         pageCount: r.pageCount,
         charsPerPage: r.pageCount ? Math.round((r.extractedCharCount || 0) / r.pageCount) : null,

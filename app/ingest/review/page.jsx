@@ -147,6 +147,13 @@ export default function IngestReviewPage() {
                 {data.confidence || "—"} confidence
               </span>
             </div>
+            {item.upload.sourceUrl && (
+              <p style={{ fontSize: 12.5, marginBottom: 10 }}>
+                <a href={item.upload.sourceUrl} target="_blank" rel="noreferrer">
+                  Check the original source →
+                </a>
+              </p>
+            )}
 
             {fields.map((f) => (
               <div key={f.key} style={{ marginBottom: 10 }}>
