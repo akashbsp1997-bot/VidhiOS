@@ -155,6 +155,14 @@ export default function IngestReviewPage() {
               </p>
             )}
 
+            {item.itemType === "source" && !data.matchedSubtopicId && (
+              <div className="disclaimer" style={{ marginBottom: 10 }}>
+                No existing subtopic matched{data.newSubtopicSuggestion ? ` — AI suggests: "${data.newSubtopicSuggestion}"` : ""}.
+                Fill in "Matched subtopic id" with a real existing id before approving, or create that subtopic first (e.g. via a
+                syllabus item) and come back.
+              </div>
+            )}
+
             {fields.map((f) => (
               <div key={f.key} style={{ marginBottom: 10 }}>
                 <label style={{ display: "block", fontSize: 12.5, marginBottom: 3, color: "var(--ink-soft)" }}>{f.label}</label>
