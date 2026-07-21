@@ -19,7 +19,7 @@ export const maxDuration = 90;
 import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
-import { subtopics, mastery, pyqs, modelQuestions, attempts, sources } from "../../../db/schema.js";
+import { subtopics, mastery, pyqs, modelQuestions, attempts, sources, lessonModules } from "../../../db/schema.js";
 import { chooseSubtopic, chooseQuestionPlan, updateMastery, nextTier, pushRecentScore } from "../../../lib/adaptive/engine.js";
 import { gradeAnswer } from "../../../lib/ai/grade.js";
 import { generateQuestion } from "../../../lib/ai/generateQuestion.js";
@@ -27,14 +27,78 @@ import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 
+// A module-level Test (components/ModuleTestPanel.jsx) always wants exactly
+// its one cached question for a known subtopic+module, never the adaptive
+// engine's subtopic-choosing/pyq-vs-model-mix logic -- real PYQs can't be
+// narrowed to a module (they're fixed historical exam text), and there's
+// only ever one question to reuse per module, not a pool to rotate through.
+// This short-circuits GET entirely, mirroring how `forcedSubtopicId` already
+// short-circuits chooseSubtopic below, one level narrower.
+async function handleModuleQuestion(userId, subtopicId, moduleId) {
+  const subtopicRows = await db.select().from(subtopics).where(eq(subtopics.id, subtopicId));
+  const subtopicRow = subtopicRows[0];
+  if (!subtopicRow) return NextResponse.json({ error: `Unknown subtopic: ${subtopicId}` }, { status: 404 });
+
+  const moduleRows = await db.select().from(lessonModules).where(eq(lessonModules.id, moduleId));
+  const moduleRow = moduleRows[0];
+  if (!moduleRow || moduleRow.subtopicId !== subtopicId) {
+    return NextResponse.json({ error: `Unknown module ${moduleId} for subtopic ${subtopicId}` }, { status: 404 });
+  }
+
+  const masteryRows = await db.select().from(mastery).where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
+  const tier = masteryRows[0]?.currentTier ?? 1;
+
+  const cachedRows = await db
+    .select()
+    .from(modelQuestions)
+    .where(and(eq(modelQuestions.subtopicId, subtopicId), eq(modelQuestions.moduleId, moduleId)));
+
+  let questionRow = cachedRows[0];
+  if (!questionRow) {
+    const generated = await generateQuestion({
+      subtopicText: subtopicRow.topicText,
+      difficultyTier: tier,
+      moduleScope: { title: moduleRow.title, scopeNote: moduleRow.scopeNote },
+      subjectConfig: getSubjectConfig(subtopicRow.subjectId),
+    });
+    [questionRow] = await db
+      .insert(modelQuestions)
+      .values({
+        subtopicId,
+        moduleId,
+        difficultyTier: tier,
+        marks: generated.marks,
+        questionText: generated.questionText,
+      })
+      .returning();
+  }
+
+  return NextResponse.json({
+    subtopicId,
+    subtopicText: subtopicRow.topicText,
+    moduleId,
+    tier,
+    questionSource: "model",
+    questionRefId: String(questionRow.id),
+    questionText: questionRow.questionText,
+    marks: questionRow.marks,
+  });
+}
+
 export async function GET(request) {
   const userId = await getSessionUserId();
   if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const forcedSubtopicId = searchParams.get("subtopicId") || undefined;
+  const moduleIdParam = searchParams.get("moduleId");
 
   try {
+    if (moduleIdParam) {
+      if (!forcedSubtopicId) return NextResponse.json({ error: "subtopicId is required alongside moduleId" }, { status: 400 });
+      return await handleModuleQuestion(userId, forcedSubtopicId, Number(moduleIdParam));
+    }
+
     const allSubtopics = await db.select().from(subtopics);
     if (!allSubtopics.length) {
       return NextResponse.json(
@@ -132,7 +196,7 @@ export async function POST(request) {
 
   try {
     const body = await request.json();
-    const { subtopicId, questionSource, questionRefId, questionTextSnapshot, difficultyTier, marks, answerText } = body || {};
+    const { subtopicId, questionSource, questionRefId, questionTextSnapshot, difficultyTier, marks, answerText, moduleId } = body || {};
 
     if (!subtopicId || !questionRefId || !questionTextSnapshot || typeof answerText !== "string") {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -142,10 +206,22 @@ export async function POST(request) {
     const subtopicRow = subtopicRows[0];
     if (!subtopicRow) return NextResponse.json({ error: "Unknown subtopic" }, { status: 404 });
 
+    // Grading uses a more specific subtopicText for a module-level attempt --
+    // gradeAnswer's own signature is unchanged, this is just a richer string
+    // passed through its existing subtopicText param (see lib/ai/grade.js).
+    let subtopicTextForGrading = subtopicRow.topicText;
+    if (moduleId) {
+      const moduleRows = await db.select().from(lessonModules).where(eq(lessonModules.id, moduleId));
+      const moduleRow = moduleRows[0];
+      if (moduleRow) {
+        subtopicTextForGrading = `${subtopicRow.topicText} — module focus: "${moduleRow.title}" (${moduleRow.scopeNote})`;
+      }
+    }
+
     const feedback = await gradeAnswer({
       questionText: questionTextSnapshot,
       marks: marks || 15,
-      subtopicText: subtopicRow.topicText,
+      subtopicText: subtopicTextForGrading,
       answerText,
       subjectConfig: getSubjectConfig(subtopicRow.subjectId),
     });
@@ -161,6 +237,7 @@ export async function POST(request) {
       answerText,
       score: feedback.score,
       feedback,
+      moduleId: moduleId || null,
     });
 
     const existingRows = await db

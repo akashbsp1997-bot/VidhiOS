@@ -1,0 +1,362 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import ModuleTestPanel from "./ModuleTestPanel.jsx";
+
+const MAX_STAGE_FETCH_ITERATIONS = 5;
+
+async function safeFetchJson(url, options) {
+  const res = await fetch(url, options);
+  const raw = await res.text();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(`Server returned a non-JSON response (HTTP ${res.status}): ${raw.slice(0, 300) || "(empty body)"}`);
+  }
+}
+
+// Reused verbatim from the pre-module design (app/api/lesson's StageModules)
+// -- a stepper for whatever panels the CURRENT stage of the CURRENT module
+// has. Module content is deliberately lighter than the legacy flow's
+// (see lib/ai/generateModules.js), so there are fewer/smaller panels per
+// stage here, but the component itself needed no changes.
+function StageModules({ modules, panelIndex, setPanelIndex, onComplete, completeLabel }) {
+  if (modules.length === 0) return null;
+  const index = Math.min(panelIndex, modules.length - 1);
+  const current = modules[index];
+  const isLast = index === modules.length - 1;
+
+  return (
+    <>
+      <div className="module-progress" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <span style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
+          {current.label} · {index + 1} of {modules.length}
+        </span>
+        <div style={{ display: "flex", gap: 4 }}>
+          {modules.map((m, i) => (
+            <span
+              key={m.key}
+              style={{ width: 6, height: 6, borderRadius: "50%", background: i === index ? "var(--ink)" : "var(--rule)" }}
+            />
+          ))}
+        </div>
+      </div>
+
+      {current.node}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+        {index > 0 && (
+          <button className="btn" onClick={() => setPanelIndex(index - 1)}>
+            ← Back
+          </button>
+        )}
+        {!isLast ? (
+          <button className="btn btn-primary" onClick={() => setPanelIndex(index + 1)}>
+            Next: {modules[index + 1].label} →
+          </button>
+        ) : (
+          <button className="btn btn-primary" onClick={onComplete}>
+            {completeLabel}
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+// Fallback for the rare case an AI phase legitimately returns no usable
+// panels (e.g. a module's practice call produced neither examples nor
+// exercises) -- without this, StageModules renders null and the student
+// has no button to advance past that stage.
+function EmptyStageFallback({ note, onComplete, completeLabel }) {
+  return (
+    <>
+      <p className="section-hint">{note}</p>
+      <button className="btn btn-primary" onClick={onComplete} style={{ marginTop: 10 }}>
+        {completeLabel}
+      </button>
+    </>
+  );
+}
+
+const MODULE_STAGES = [
+  { key: "teach", label: "Teach" },
+  { key: "grasp", label: "Grasp" },
+  { key: "remember", label: "Remember" },
+  { key: "test", label: "Test" },
+];
+
+// The new per-module design: a subtopic is a SEQUENCE of modules, and each
+// module runs its own independent Teach -> Grasp -> Remember -> Test cycle
+// before advancing to the next one, rather than one cycle covering the
+// whole subtopic (that's LegacyLearnFlow.jsx). `initialData` is the
+// dispatcher's (app/learn/[subtopicId]/page.jsx) own first
+// /api/module-lesson fetch -- seeded here instead of re-fetched, so the
+// dispatcher's AI-call-triggering request (module planning, or module 1's
+// Teach phase) isn't wastefully repeated. The dispatcher mounts this with
+// key={subtopicId}, so a subtopic change always gives a fresh instance --
+// the useState(initialData) seeding below only needs to handle first mount,
+// never a prop change on an existing instance.
+export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtopicText, initialData }) {
+  const [modules, setModules] = useState(initialData.modules || []);
+  const [moduleIndex, setModuleIndex] = useState(0);
+  const [moduleContent, setModuleContent] = useState(initialData);
+  const [stage, setStage] = useState("teach");
+  const [panelIndex, setPanelIndex] = useState(0);
+  const [loadingStage, setLoadingStage] = useState(null);
+  const [error, setError] = useState(null);
+  const [allModulesComplete, setAllModulesComplete] = useState(Boolean(initialData.allModulesComplete));
+
+  // Picks up where the dispatcher's own fetch left off, if it wasn't
+  // immediately ready (e.g. it only just ran the module-planning phase, or
+  // module 1's Teach phase, and there's still more to generate before
+  // Teach can render). Runs once per mount -- see the key={subtopicId} note
+  // above for why no subtopicId-change handling is needed here.
+  useEffect(() => {
+    if (!initialData.ready && !initialData.allModulesComplete && !initialData.error) {
+      ensureModuleStageReady(0, "teach");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function ensureModuleStageReady(idx, stageKey, force = false) {
+    setLoadingStage(stageKey);
+    try {
+      for (let i = 0; i < MAX_STAGE_FETCH_ITERATIONS; i++) {
+        const url = `/api/module-lesson?subtopicId=${encodeURIComponent(subtopicId)}&moduleIndex=${idx}&stage=${stageKey}${force && i === 0 ? "&force=true" : ""}`;
+        const data = await safeFetchJson(url);
+        if (data.error) {
+          setError(data.error);
+          return;
+        }
+        if (data.modules) setModules(data.modules);
+        if (data.allModulesComplete) {
+          setAllModulesComplete(true);
+          return;
+        }
+        setModuleContent((prev) => ({ ...prev, ...data }));
+        if (data.ready) return;
+      }
+      setError("This module's content is taking longer than expected to prepare. Please try again in a moment.");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoadingStage((prev) => (prev === stageKey ? null : prev));
+    }
+  }
+
+  function postModuleStage(idx, stageKey) {
+    fetch("/api/module-lesson", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subtopicId, moduleIndex: idx, stage: stageKey }),
+    }).catch(() => {});
+  }
+
+  function goToModuleStage(idx, stageKey) {
+    setStage(stageKey);
+    setPanelIndex(0);
+    postModuleStage(idx, stageKey);
+    if (stageKey !== "test") ensureModuleStageReady(idx, stageKey);
+  }
+
+  function goToModule(idx) {
+    if (idx >= modules.length) {
+      setAllModulesComplete(true);
+      return;
+    }
+    setModuleIndex(idx);
+    setStage("teach");
+    setPanelIndex(0);
+    postModuleStage(idx, "teach");
+    ensureModuleStageReady(idx, "teach");
+  }
+
+  if (error) return <div className="error-box">{error}</div>;
+
+  if (allModulesComplete) {
+    return (
+      <div className="card">
+        <h2>Subtopic complete</h2>
+        <p className="lede">You've been through every module for this subtopic.</p>
+        <a className="btn btn-primary" href={`/practice/${encodeURIComponent(subtopicId)}`}>
+          Practice full exam-style questions on this subtopic, including real PYQs →
+        </a>
+      </div>
+    );
+  }
+
+  if (!modules.length || !moduleContent) return <div className="loading">{"Preparing this lesson… (first visit generates it, a few seconds)"}</div>;
+
+  const currentModule = modules[moduleIndex];
+  const practiceReady = Boolean(moduleContent.practiceGeneratedAt);
+  const isLastModule = moduleIndex === modules.length - 1;
+
+  const teachPanels = moduleContent.teachContent
+    ? [
+        {
+          key: "concept",
+          label: "Concept",
+          node: moduleContent.teachContent.split("\n\n").map((para, i) => (
+            <p key={i} style={{ fontSize: 14.5, lineHeight: 1.6 }}>
+              {para}
+            </p>
+          )),
+        },
+        moduleContent.keyPoints?.length > 0 && {
+          key: "keypoints",
+          label: "Key points",
+          node: (
+            <ul style={{ paddingLeft: 20, fontSize: 14, lineHeight: 1.7 }}>
+              {moduleContent.keyPoints.map((p, i) => (
+                <li key={i}>{p}</li>
+              ))}
+            </ul>
+          ),
+        },
+      ].filter(Boolean)
+    : [];
+
+  const graspPanels = practiceReady
+    ? [
+        moduleContent.examples?.length > 0 && {
+          key: "examples",
+          label: "Examples",
+          node: moduleContent.examples.map((ex, i) => (
+            <div className="example-card" key={i}>
+              <div className="example-title">{ex.title}</div>
+              <div className="example-body">{ex.body}</div>
+            </div>
+          )),
+        },
+        moduleContent.exercises?.length > 0 && {
+          key: "exercises",
+          label: "Exercises",
+          node: moduleContent.exercises.map((ex, i) => (
+            <div className="exercise-card" key={i}>
+              <div className="exercise-prompt">{ex.prompt}</div>
+              <div className="exercise-answer">{ex.modelAnswer}</div>
+            </div>
+          )),
+        },
+      ].filter(Boolean)
+    : [];
+
+  const rememberPanels =
+    practiceReady && moduleContent.mnemonic
+      ? [
+          {
+            key: "mnemonic",
+            label: "Mnemonic",
+            node: (
+              <div className="mnemonic-card">
+                <div className="mnemonic-device">{moduleContent.mnemonic.device}</div>
+                <div className="mnemonic-explanation">{moduleContent.mnemonic.explanation}</div>
+              </div>
+            ),
+          },
+        ]
+      : [];
+
+  return (
+    <>
+      <h1>{subjectDisplayName ? `${subjectDisplayName} · ${subtopicId}` : subtopicId}</h1>
+      <p className="lede">{subtopicText}</p>
+
+      <div className="segmented" style={{ marginBottom: 8 }}>
+        {modules.map((m, i) => (
+          <button key={m.id} className={`seg${i === moduleIndex ? " active" : ""}`} onClick={() => goToModule(i)}>
+            {i + 1}. {m.title}
+          </button>
+        ))}
+      </div>
+      <p className="section-hint" style={{ marginBottom: 12 }}>
+        Module {moduleIndex + 1} of {modules.length} — {currentModule?.scopeNote}
+      </p>
+
+      <div className="segmented">
+        {MODULE_STAGES.map((s) => (
+          <button key={s.key} className={`seg${stage === s.key ? " active" : ""}`} onClick={() => goToModuleStage(moduleIndex, s.key)}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {stage === "teach" && (
+        <div className="card">
+          <h2>Teach</h2>
+          {teachPanels.length > 0 ? (
+            <StageModules
+              modules={teachPanels}
+              panelIndex={panelIndex}
+              setPanelIndex={setPanelIndex}
+              onComplete={() => goToModuleStage(moduleIndex, "grasp")}
+              completeLabel="Continue to Grasp →"
+            />
+          ) : (
+            <div className="loading">{"Preparing Teach content…"}</div>
+          )}
+        </div>
+      )}
+
+      {stage === "grasp" && (
+        <div className="card">
+          <h2>Grasp</h2>
+          {!practiceReady ? (
+            <div className="loading">{"Preparing Grasp content…"}</div>
+          ) : graspPanels.length > 0 ? (
+            <StageModules
+              modules={graspPanels}
+              panelIndex={panelIndex}
+              setPanelIndex={setPanelIndex}
+              onComplete={() => goToModuleStage(moduleIndex, "remember")}
+              completeLabel="Continue to Remember →"
+            />
+          ) : (
+            <EmptyStageFallback
+              note="No practice material generated for this module."
+              onComplete={() => goToModuleStage(moduleIndex, "remember")}
+              completeLabel="Continue to Remember →"
+            />
+          )}
+        </div>
+      )}
+
+      {stage === "remember" && (
+        <div className="card">
+          <h2>Remember</h2>
+          {!practiceReady ? (
+            <div className="loading">{"Preparing Remember content…"}</div>
+          ) : rememberPanels.length > 0 ? (
+            <StageModules
+              modules={rememberPanels}
+              panelIndex={panelIndex}
+              setPanelIndex={setPanelIndex}
+              onComplete={() => goToModuleStage(moduleIndex, "test")}
+              completeLabel="Start Test →"
+            />
+          ) : (
+            <EmptyStageFallback
+              note="No mnemonic generated for this module."
+              onComplete={() => goToModuleStage(moduleIndex, "test")}
+              completeLabel="Start Test →"
+            />
+          )}
+        </div>
+      )}
+
+      {stage === "test" && (
+        <div className="card">
+          <h2>Test</h2>
+          <ModuleTestPanel
+            subtopicId={subtopicId}
+            moduleId={currentModule.id}
+            moduleTitle={currentModule.title}
+            isLastModule={isLastModule}
+            onNext={() => goToModule(moduleIndex + 1)}
+          />
+        </div>
+      )}
+    </>
+  );
+}
