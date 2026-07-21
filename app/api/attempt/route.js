@@ -28,12 +28,19 @@ import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 
 // A module-level Test (components/ModuleTestPanel.jsx) always wants exactly
-// its one cached question for a known subtopic+module, never the adaptive
-// engine's subtopic-choosing/pyq-vs-model-mix logic -- real PYQs can't be
-// narrowed to a module (they're fixed historical exam text), and there's
-// only ever one question to reuse per module, not a pool to rotate through.
-// This short-circuits GET entirely, mirroring how `forcedSubtopicId` already
-// short-circuits chooseSubtopic below, one level narrower.
+// its one question for a known subtopic+module, never the adaptive engine's
+// subtopic-choosing/pyq-vs-model-mix logic -- there's only ever one question
+// to serve per module, not a pool to rotate through. This short-circuits GET
+// entirely, mirroring how `forcedSubtopicId` already short-circuits
+// chooseSubtopic below, one level narrower.
+//
+// A module built from a real PYQ (moduleRow.pyqId set -- see
+// app/api/module-lesson/route.js's plan phase and lib/ai/generateModules.js's
+// generateModulePlanFromPyqs) serves that EXACT real question directly, zero
+// AI calls: the module's whole reason for existing is answering it, so there
+// is no fabricated mapping here, unlike an AI-invented module (pyqId null)
+// where a real PYQ genuinely wouldn't fit and the existing generate-and-cache
+// path below still applies.
 async function handleModuleQuestion(userId, subtopicId, moduleId) {
   const subtopicRows = await db.select().from(subtopics).where(eq(subtopics.id, subtopicId));
   const subtopicRow = subtopicRows[0];
@@ -47,6 +54,22 @@ async function handleModuleQuestion(userId, subtopicId, moduleId) {
 
   const masteryRows = await db.select().from(mastery).where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
   const tier = masteryRows[0]?.currentTier ?? 1;
+
+  if (moduleRow.pyqId) {
+    const pyqRows = await db.select().from(pyqs).where(eq(pyqs.id, moduleRow.pyqId));
+    const pyq = pyqRows[0];
+    if (!pyq) return NextResponse.json({ error: `Module ${moduleId}'s anchor PYQ ${moduleRow.pyqId} not found` }, { status: 500 });
+    return NextResponse.json({
+      subtopicId,
+      subtopicText: subtopicRow.topicText,
+      moduleId,
+      tier,
+      questionSource: "pyq",
+      questionRefId: pyq.id,
+      questionText: pyq.questionText,
+      marks: pyq.marks,
+    });
+  }
 
   const cachedRows = await db
     .select()

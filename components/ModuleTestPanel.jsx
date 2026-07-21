@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 
+// Same convention as components/PracticeSession.jsx's SOURCE_LABEL.
+const SOURCE_LABEL = { pyq: "Real PYQ", model: "Model question" };
+
 // Deliberately NOT PracticeSession -- that component's loadNext/"Next
 // question →" loop assumes an unbounded adaptive pool (real PYQs mixed
 // with rotating model questions), which doesn't fit this panel's shape:
@@ -71,7 +74,7 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
   return (
     <>
       <div className="meta-line">
-        {moduleTitle} · {question.marks} marks
+        {moduleTitle} · {question.marks} marks · {SOURCE_LABEL[question.questionSource] || question.questionSource}
       </div>
       <div className="question-text">{question.questionText}</div>
 

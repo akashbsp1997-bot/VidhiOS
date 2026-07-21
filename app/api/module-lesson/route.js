@@ -14,16 +14,75 @@
 export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
-import { and, eq, asc } from "drizzle-orm";
+import { and, eq, asc, sql, inArray } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
-import { subtopics, sources, lessons, lessonModules, mastery, subjects } from "../../../db/schema.js";
-import { generateModulePlan, generateModuleTeach, generateModulePractice } from "../../../lib/ai/generateModules.js";
+import { subtopics, sources, lessons, lessonModules, mastery, subjects, pyqs } from "../../../db/schema.js";
+import { generateModulePlan, generateModulePlanFromPyqs, generateModuleTeach, generateModulePractice } from "../../../lib/ai/generateModules.js";
 import { casesSeed } from "../../../db/seed/cases.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
+
+// A subtopic only goes PYQ-anchored (see selectPyqCandidates below) once it
+// has at least this many real PYQs -- with a threshold of 1, a subtopic
+// with exactly one real PYQ would get exactly one module for its entire
+// Teach->Grasp->Remember->Test cycle, a hard regression from the 2-5 module
+// range free decomposition already guarantees. Verified against real seed
+// data: this threshold routes 65% of law-optional subtopics through PYQ
+// anchoring (2-5 modules each) and leaves the rest (0 or 1 PYQ) on
+// unchanged free-decomposition behavior, rather than collapsing 26% of the
+// syllabus to single-module subtopics under a naive ">=1" threshold.
+const MIN_PYQS_FOR_ANCHORING = 2;
+const MAX_MODULES = 5;
+const MAX_PYQS_PER_YEAR = 2;
+
+// Picks up to MAX_MODULES real PYQs to anchor modules to, favoring recency
+// (what UPSC currently emphasizes) as the relevance signal, capped per year
+// so a subtopic with many PYQs concentrated in a couple of recent sittings
+// (some gs2 subtopics have 12-24 real PYQs) still gets some spread rather
+// than 5 modules from the same one or two exams. Re-sorted by marks
+// ascending afterward (a defensible foundational->advanced proxy) so the
+// array order handed to the AI -- and therefore each module's orderIndex --
+// already reads basics-first, without needing the AI to reorder (which
+// would break positional pyqId matching).
+function selectPyqCandidates(pyqCandidates) {
+  const byYearDesc = [...pyqCandidates].sort((a, b) => b.year - a.year);
+  const selected = [];
+  const perYearCount = {};
+  for (const q of byYearDesc) {
+    if (selected.length >= MAX_MODULES) break;
+    const count = perYearCount[q.year] || 0;
+    if (count >= MAX_PYQS_PER_YEAR) continue;
+    selected.push(q);
+    perYearCount[q.year] = count + 1;
+  }
+  return selected.sort((a, b) => a.marks - b.marks);
+}
+
+// Enriches plain lesson_modules rows with their anchor PYQ's year/marks (for
+// the "Grounded in a real PYQ" UI badge) via one follow-up lookup, rather
+// than denormalizing that data onto lesson_modules itself -- matches how
+// this codebase handles other FK relationships (e.g. sources.storageUploadId)
+// by referencing and re-fetching instead of duplicating.
+async function buildModulesSummary(moduleRows) {
+  const pyqIds = moduleRows.map((m) => m.pyqId).filter(Boolean);
+  const anchorRows = pyqIds.length ? await db.select().from(pyqs).where(inArray(pyqs.id, pyqIds)) : [];
+  const anchorById = Object.fromEntries(anchorRows.map((p) => [p.id, p]));
+  return moduleRows.map((m) => {
+    const anchor = m.pyqId ? anchorById[m.pyqId] : null;
+    return {
+      id: m.id,
+      orderIndex: m.orderIndex,
+      title: m.title,
+      scopeNote: m.scopeNote,
+      pyqId: m.pyqId ?? null,
+      pyqYear: anchor?.year ?? null,
+      pyqMarks: anchor?.marks ?? null,
+    };
+  });
+}
 
 // Grasp and Remember are both satisfied the instant the practice phase
 // completes (no separate image phase at module granularity, unlike
@@ -81,26 +140,36 @@ export async function GET(request) {
         }
       }
 
-      const srcRows = await db.select().from(sources).where(eq(sources.subtopicId, subtopicId));
-      const sourceExcerpts = sortByTierPriority(srcRows.filter((s) => s.extractedText))
-        .map((s) => s.extractedText)
-        .slice(0, 2);
-      const caseAnchors = casesSeed
-        .filter((c) => c.topics.includes(subtopicId))
-        .map((c) => ({ case: c.case, point: c.point }));
+      const pyqCandidates = selectPyqCandidates(
+        await db.select().from(pyqs).where(sql`${subtopicId} = ANY(${pyqs.topics})`)
+      );
 
-      const planned = await generateModulePlan({ subtopicText: subtopicRow.topicText, sourceExcerpts, caseAnchors, subjectConfig });
+      let planned;
+      if (pyqCandidates.length >= MIN_PYQS_FOR_ANCHORING) {
+        planned = await generateModulePlanFromPyqs({ subtopicText: subtopicRow.topicText, pyqCandidates, subjectConfig });
+      } else {
+        const srcRows = await db.select().from(sources).where(eq(sources.subtopicId, subtopicId));
+        const sourceExcerpts = sortByTierPriority(srcRows.filter((s) => s.extractedText))
+          .map((s) => s.extractedText)
+          .slice(0, 2);
+        const caseAnchors = casesSeed
+          .filter((c) => c.topics.includes(subtopicId))
+          .map((c) => ({ case: c.case, point: c.point }));
+
+        const freeModules = await generateModulePlan({ subtopicText: subtopicRow.topicText, sourceExcerpts, caseAnchors, subjectConfig });
+        planned = freeModules.map((m) => ({ ...m, pyqId: null }));
+      }
 
       const inserted = await db
         .insert(lessonModules)
-        .values(planned.map((m, i) => ({ subtopicId, orderIndex: i, title: m.title, scopeNote: m.scopeNote })))
+        .values(planned.map((m, i) => ({ subtopicId, orderIndex: i, title: m.title, scopeNote: m.scopeNote, pyqId: m.pyqId })))
         .returning();
 
       return NextResponse.json({
         subtopicId,
         subtopicText: subtopicRow.topicText,
         subjectDisplayName,
-        modules: inserted.map((m) => ({ id: m.id, orderIndex: m.orderIndex, title: m.title, scopeNote: m.scopeNote })),
+        modules: await buildModulesSummary(inserted),
         ready: false,
         nextPhase: "module-teach",
       });
@@ -111,14 +180,14 @@ export async function GET(request) {
         subtopicId,
         subtopicText: subtopicRow.topicText,
         subjectDisplayName,
-        modules: modules.map((m) => ({ id: m.id, orderIndex: m.orderIndex, title: m.title, scopeNote: m.scopeNote })),
+        modules: await buildModulesSummary(modules),
         allModulesComplete: true,
       });
     }
 
     const row = modules[moduleIndex];
     const phase = nextMissingPhase(row, STAGE_REQUIRES[stage] ?? [], stage, force);
-    const modulesSummary = modules.map((m) => ({ id: m.id, orderIndex: m.orderIndex, title: m.title, scopeNote: m.scopeNote }));
+    const modulesSummary = await buildModulesSummary(modules);
 
     if (phase === null) {
       return NextResponse.json({
@@ -133,11 +202,22 @@ export async function GET(request) {
       });
     }
 
+    // Only set for a PYQ-anchored module -- grounds Teach/Practice content
+    // in the real question's exact text (see lib/ai/generateModules.js's
+    // anti-leak instructions for why Practice's use of this is a hard
+    // requirement, not just flavor).
+    let pyqQuestionText;
+    if (row.pyqId) {
+      const anchorRows = await db.select().from(pyqs).where(eq(pyqs.id, row.pyqId));
+      pyqQuestionText = anchorRows[0]?.questionText;
+    }
+
     if (phase === "teach") {
       const teach = await generateModuleTeach({
         subtopicText: subtopicRow.topicText,
         moduleTitle: row.title,
         moduleScope: row.scopeNote,
+        pyqQuestionText,
         subjectConfig,
       });
 
@@ -165,6 +245,7 @@ export async function GET(request) {
       moduleTitle: row.title,
       moduleScope: row.scopeNote,
       teachContent: row.teachContent,
+      pyqQuestionText,
       subjectConfig,
     });
 

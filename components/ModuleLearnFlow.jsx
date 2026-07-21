@@ -272,6 +272,13 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
       </div>
       <p className="section-hint" style={{ marginBottom: 12 }}>
         Module {moduleIndex + 1} of {modules.length} — {currentModule?.scopeNote}
+        {currentModule?.pyqId && (
+          <>
+            {" "}
+            · <strong>Grounded in a real PYQ</strong>
+            {currentModule.pyqYear ? ` (${currentModule.pyqYear}${currentModule.pyqMarks ? `, ${currentModule.pyqMarks} marks` : ""})` : ""}
+          </>
+        )}
       </p>
 
       <div className="segmented">

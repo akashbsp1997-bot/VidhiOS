@@ -1,0 +1,2 @@
+ALTER TABLE "lesson_modules" ADD COLUMN "pyq_id" text;--> statement-breakpoint
+ALTER TABLE "lesson_modules" ADD CONSTRAINT "lesson_modules_pyq_id_pyqs_id_fk" FOREIGN KEY ("pyq_id") REFERENCES "public"."pyqs"("id") ON DELETE no action ON UPDATE no action;

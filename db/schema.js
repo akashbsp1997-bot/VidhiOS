@@ -351,6 +351,14 @@ export const lessonModules = pgTable(
     orderIndex: integer("order_index").notNull(), // 0-based sequence within the subtopic
     title: text("title").notNull(),
     scopeNote: text("scope_note").notNull().default(""), // planning output, fed back into every module-scoped prompt as narrowing context
+    // Null = AI-invented fallback module (the subtopic had fewer than 2 real
+    // PYQs to anchor to). Set = this module is built around answering this
+    // exact real exam question -- its Teach/Grasp content is grounded in the
+    // question's real text, and its Test serves this PYQ directly (zero AI
+    // calls) instead of generating one. See app/api/module-lesson/route.js's
+    // plan phase for the selection/threshold logic and
+    // lib/ai/generateModules.js's generateModulePlanFromPyqs.
+    pyqId: text("pyq_id").references(() => pyqs.id),
     // Teach phase, null until first Teach visit to this module
     teachContent: text("teach_content"),
     keyPoints: jsonb("key_points").notNull().default([]), // flat bullet strings, not structured keyProvisions/caseLaw objects
