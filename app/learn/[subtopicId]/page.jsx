@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
+import { useSearchParams } from "next/navigation";
 import LegacyLearnFlow from "../../../components/LegacyLearnFlow.jsx";
 import ModuleLearnFlow from "../../../components/ModuleLearnFlow.jsx";
 
@@ -23,6 +24,15 @@ async function safeFetchJson(url, options) {
 // or module 1's Teach phase) only ever runs once.
 export default function LearnPage({ params }) {
   const { subtopicId } = use(params);
+  // Set when arriving via a "Study this as a module" link from
+  // components/PracticeSession.jsx -- jumps straight to that module instead
+  // of always starting at module 1. Read once at mount; a later change to
+  // the URL bar won't re-trigger this (matches this page's existing
+  // subtopicId-keyed remount model, not a live-reactive query param).
+  const searchParams = useSearchParams();
+  const initialModuleIndexParam = Number(searchParams.get("module"));
+  const initialModuleIndex = Number.isInteger(initialModuleIndexParam) && initialModuleIndexParam >= 0 ? initialModuleIndexParam : 0;
+
   const [dispatch, setDispatch] = useState(null); // "legacy" | "module" | null (deciding)
   const [initialData, setInitialData] = useState(null);
   const [error, setError] = useState(null);
@@ -31,7 +41,7 @@ export default function LearnPage({ params }) {
   function decide(upgrade = false) {
     setError(null);
     if (!upgrade) setDispatch(null);
-    const url = `/api/module-lesson?subtopicId=${encodeURIComponent(subtopicId)}&moduleIndex=0&stage=teach${upgrade ? "&upgrade=true" : ""}`;
+    const url = `/api/module-lesson?subtopicId=${encodeURIComponent(subtopicId)}&moduleIndex=${initialModuleIndex}&stage=teach${upgrade ? "&upgrade=true" : ""}`;
     safeFetchJson(url)
       .then((data) => {
         if (data.error) {
@@ -69,6 +79,7 @@ export default function LearnPage({ params }) {
       subjectDisplayName={initialData.subjectDisplayName}
       subtopicText={initialData.subtopicText}
       initialData={initialData}
+      initialModuleIndex={initialModuleIndex}
     />
   );
 }

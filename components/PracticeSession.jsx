@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 
-const SOURCE_LABEL = { pyq: "Real PYQ", model: "Model question", generate: "Generating\u2026" };
+const SOURCE_LABEL = { pyq: "Real PYQ", model: "Model question", generate: "Generating…" };
 
 export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
   const [question, setQuestion] = useState(null);
@@ -62,7 +62,7 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
       .finally(() => setGrading(false));
   }
 
-  if (loading) return <div className="loading">Picking your next question\u2026</div>;
+  if (loading) return <div className="loading">Picking your next question…</div>;
   if (error)
     return (
       <div className="error-box">
@@ -80,29 +80,56 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
     <>
       <h1>{subtopicLabel ? subtopicLabel : "Adaptive practice"}</h1>
       <p className="lede">
-        One question at a time \u2014 your answer shapes the next one. Feedback is a practice aid from an AI grader,
+        One question at a time — your answer shapes the next one. Feedback is a practice aid from an AI grader,
         not an authoritative UPSC score.
       </p>
 
       <div className="card">
         <div className="meta-line">
-          {question.subtopicId} \u00b7 {question.subtopicText} \u00b7 tier {question.tier} \u00b7 {question.marks} marks \u00b7{" "}
+          {question.subtopicId} · {question.subtopicText} · tier {question.tier} · {question.marks} marks ·{" "}
           {SOURCE_LABEL[question.questionSource] || question.questionSource}
         </div>
+
+        {question.questionSource === "pyq" && question.pyqYear && (
+          <div style={{ marginBottom: 8 }}>
+            <span
+              style={{
+                display: "inline-block",
+                fontWeight: 700,
+                fontSize: 12.5,
+                padding: "2px 8px",
+                borderRadius: 6,
+                background: "var(--rule)",
+              }}
+            >
+              {question.pyqYear} Q{question.pyqSlot}
+              {question.pyqSub}
+            </span>
+            {question.linkedModuleIndex != null && (
+              <a
+                href={`/learn/${encodeURIComponent(question.subtopicId)}?module=${question.linkedModuleIndex}`}
+                style={{ marginLeft: 10, fontSize: 12.5 }}
+              >
+                Study this as a module →
+              </a>
+            )}
+          </div>
+        )}
+
         <div className="question-text">{question.questionText}</div>
 
         {!feedback && (
           <>
             <textarea
               className="answer-box"
-              placeholder="Write your answer here\u2026"
+              placeholder="Write your answer here…"
               value={answerText}
               onChange={(e) => setAnswerText(e.target.value)}
               disabled={grading}
             />
             <div style={{ marginTop: 12 }}>
               <button className="btn btn-primary" onClick={submitAnswer} disabled={grading || !answerText.trim()}>
-                {grading ? "Grading\u2026" : "Submit answer"}
+                {grading ? "Grading…" : "Submit answer"}
               </button>
             </div>
           </>
@@ -148,19 +175,19 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
 
             {masteryAfter && (
               <p style={{ fontSize: 13, color: "var(--ink-soft)" }}>
-                Subtopic mastery now {Math.round(masteryAfter.score * 100)}% \u00b7 tier {masteryAfter.tier} \u00b7{" "}
+                Subtopic mastery now {Math.round(masteryAfter.score * 100)}% · tier {masteryAfter.tier} ·{" "}
                 {masteryAfter.attemptsCount} attempt{masteryAfter.attemptsCount === 1 ? "" : "s"} recorded
               </p>
             )}
 
             <button className="btn btn-primary" onClick={loadNext} style={{ marginTop: 8 }}>
-              Next question \u2192
+              Next question →
             </button>
           </div>
         )}
 
         <div className="disclaimer">
-          AI-graded feedback can be wrong, especially on exact citations \u2014 the "worth checking" list flags what
+          AI-graded feedback can be wrong, especially on exact citations — the "worth checking" list flags what
           the grader wasn't itself confident about. Cross-check anything you plan to use in a real answer.
         </div>
       </div>

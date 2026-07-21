@@ -17,7 +17,7 @@ import { NextResponse } from "next/server";
 import { and, eq, asc, sql, inArray } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { subtopics, sources, lessons, lessonModules, mastery, subjects, pyqs } from "../../../db/schema.js";
-import { generateModulePlan, generateModulePlanFromPyqs, generateModuleTeach, generateModulePractice } from "../../../lib/ai/generateModules.js";
+import { generateModulePlan, generateModulePlanFromPyqs, generateModuleTeach, generateModulePractice, generateModuleImage } from "../../../lib/ai/generateModules.js";
 import { casesSeed } from "../../../db/seed/cases.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
@@ -84,20 +84,21 @@ async function buildModulesSummary(moduleRows) {
   });
 }
 
-// Grasp and Remember are both satisfied the instant the practice phase
-// completes (no separate image phase at module granularity, unlike
-// /api/lesson's three-phase STAGE_REQUIRES) -- so this is a 2-phase state
-// machine, not 3.
+// Grasp is satisfied the instant the practice phase completes; Remember
+// additionally needs the image phase -- same three-phase asymmetry as
+// /api/lesson's STAGE_REQUIRES (Grasp doesn't need the diagram, Remember
+// does).
 const STAGE_REQUIRES = {
   teach: ["teach"],
   grasp: ["teach", "practice"],
-  remember: ["teach", "practice"],
+  remember: ["teach", "practice", "image"],
 };
 
 function nextMissingPhase(row, requiredPhases, stage, force) {
   for (const phase of requiredPhases) {
     if (phase === "teach" && (!row?.generatedAt || (force && stage === "teach"))) return "teach";
     if (phase === "practice" && (!row?.practiceGeneratedAt || (force && stage === "grasp"))) return "practice";
+    if (phase === "image" && (!row?.visualImageDataUri || (force && stage === "remember"))) return "image";
   }
   return null;
 }
@@ -239,19 +240,45 @@ export async function GET(request) {
       });
     }
 
-    // phase === "practice"
-    const practice = await generateModulePractice({
-      subtopicText: subtopicRow.topicText,
-      moduleTitle: row.title,
-      moduleScope: row.scopeNote,
-      teachContent: row.teachContent,
-      pyqQuestionText,
-      subjectConfig,
-    });
+    if (phase === "practice") {
+      const practice = await generateModulePractice({
+        subtopicText: subtopicRow.topicText,
+        moduleTitle: row.title,
+        moduleScope: row.scopeNote,
+        teachContent: row.teachContent,
+        pyqQuestionText,
+        subjectConfig,
+      });
+
+      const [saved] = await db
+        .update(lessonModules)
+        .set({ ...practice, practiceGeneratedAt: new Date() })
+        .where(eq(lessonModules.id, row.id))
+        .returning();
+
+      // Grasp is fully satisfied here; Remember still needs the image phase,
+      // so only Grasp's own request reports ready:true -- a Remember request
+      // gets ready:false + nextPhase:"image" and the client's poll loop
+      // continues, exactly like /api/lesson's practice-phase branch.
+      const ready = stage !== "remember";
+      return NextResponse.json({
+        subtopicId,
+        subtopicText: subtopicRow.topicText,
+        subjectDisplayName,
+        modules: modulesSummary,
+        moduleIndex,
+        ...saved,
+        ready,
+        nextPhase: ready ? null : "image",
+      });
+    }
+
+    // phase === "image"
+    const visualImageDataUri = await generateModuleImage({ moduleTitle: row.title, keyPoints: row.keyPoints });
 
     const [saved] = await db
       .update(lessonModules)
-      .set({ ...practice, practiceGeneratedAt: new Date() })
+      .set({ visualImageDataUri })
       .where(eq(lessonModules.id, row.id))
       .returning();
 

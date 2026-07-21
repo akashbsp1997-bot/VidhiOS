@@ -363,12 +363,19 @@ export const lessonModules = pgTable(
     teachContent: text("teach_content"),
     keyPoints: jsonb("key_points").notNull().default([]), // flat bullet strings, not structured keyProvisions/caseLaw objects
     generatedAt: timestamp("generated_at"),
-    // Practice phase -- covers BOTH Grasp and Remember (no separate image
-    // phase), null until first Grasp visit to this module
+    // Practice phase -- covers Grasp (examples/exercises/mnemonic), null
+    // until first Grasp visit to this module
     examples: jsonb("examples").notNull().default([]),
     exercises: jsonb("exercises").notNull().default([]),
     mnemonic: jsonb("mnemonic"), // single {device, explanation} object, or null
     practiceGeneratedAt: timestamp("practice_generated_at"),
+    // Image phase -- separate from practice again (reintroduced after
+    // initially being cut for cost): null until first Remember visit,
+    // non-fatal on generation failure (see generateModuleImage). Built from
+    // this module's title/keyPoints, not a nested visualOutline tree like
+    // lessons.visualImageDataUri -- a module is already a narrow single
+    // concept, so a flat prompt is enough.
+    visualImageDataUri: text("visual_image_data_uri"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({

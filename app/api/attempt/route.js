@@ -157,6 +157,12 @@ export async function GET(request) {
 
     let questionText, marks, questionRefId;
     let questionSource = plan.source;
+    // Only set when this exact PYQ is also a module's anchor question (see
+    // db/schema.js's lessonModules.pyqId) -- lets the client offer "study
+    // this as a module" instead of just answering it cold. year/slot/sec/sub
+    // are only meaningful for a real PYQ, hence undefined in the other
+    // branches below.
+    let pyqYear, pyqSlot, pyqSec, pyqSub, linkedModuleIndex;
 
     if (plan.source === "pyq") {
       const q = pyqPool.find((p) => p.id === plan.id);
@@ -164,6 +170,13 @@ export async function GET(request) {
       questionText = q.questionText;
       marks = q.marks;
       questionRefId = q.id;
+      pyqYear = q.year;
+      pyqSlot = q.slot;
+      pyqSec = q.sec;
+      pyqSub = q.sub;
+
+      const linkedRows = await db.select().from(lessonModules).where(eq(lessonModules.pyqId, q.id));
+      linkedModuleIndex = linkedRows[0]?.orderIndex ?? null;
     } else if (plan.source === "model") {
       const q = modelPool.find((m) => String(m.id) === String(plan.id));
       if (!q) return NextResponse.json({ error: "Planned model question vanished — try again" }, { status: 500 });
@@ -204,6 +217,11 @@ export async function GET(request) {
       tier,
       questionSource,
       questionRefId,
+      pyqYear,
+      pyqSlot,
+      pyqSec,
+      pyqSub,
+      linkedModuleIndex,
       questionText,
       marks,
     });

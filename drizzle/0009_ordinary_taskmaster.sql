@@ -1,0 +1,1 @@
+ALTER TABLE "lesson_modules" ADD COLUMN "visual_image_data_uri" text;

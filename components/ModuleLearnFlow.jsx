@@ -97,9 +97,9 @@ const MODULE_STAGES = [
 // key={subtopicId}, so a subtopic change always gives a fresh instance --
 // the useState(initialData) seeding below only needs to handle first mount,
 // never a prop change on an existing instance.
-export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtopicText, initialData }) {
+export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtopicText, initialData, initialModuleIndex = 0 }) {
   const [modules, setModules] = useState(initialData.modules || []);
-  const [moduleIndex, setModuleIndex] = useState(0);
+  const [moduleIndex, setModuleIndex] = useState(initialModuleIndex);
   const [moduleContent, setModuleContent] = useState(initialData);
   const [stage, setStage] = useState("teach");
   const [panelIndex, setPanelIndex] = useState(0);
@@ -109,12 +109,12 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
 
   // Picks up where the dispatcher's own fetch left off, if it wasn't
   // immediately ready (e.g. it only just ran the module-planning phase, or
-  // module 1's Teach phase, and there's still more to generate before
-  // Teach can render). Runs once per mount -- see the key={subtopicId} note
-  // above for why no subtopicId-change handling is needed here.
+  // initialModuleIndex's Teach phase, and there's still more to generate
+  // before Teach can render). Runs once per mount -- see the key={subtopicId}
+  // note above for why no subtopicId-change handling is needed here.
   useEffect(() => {
     if (!initialData.ready && !initialData.allModulesComplete && !initialData.error) {
-      ensureModuleStageReady(0, "teach");
+      ensureModuleStageReady(initialModuleIndex, "teach");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -249,10 +249,25 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
             key: "mnemonic",
             label: "Mnemonic",
             node: (
-              <div className="mnemonic-card">
-                <div className="mnemonic-device">{moduleContent.mnemonic.device}</div>
-                <div className="mnemonic-explanation">{moduleContent.mnemonic.explanation}</div>
-              </div>
+              <>
+                <div className="mnemonic-card">
+                  <div className="mnemonic-device">{moduleContent.mnemonic.device}</div>
+                  <div className="mnemonic-explanation">{moduleContent.mnemonic.explanation}</div>
+                </div>
+                {moduleContent.visualImageDataUri ? (
+                  <img
+                    src={moduleContent.visualImageDataUri}
+                    alt={`Concept diagram for ${currentModule?.title || "this module"}`}
+                    className="visual-diagram"
+                  />
+                ) : (
+                  loadingStage === "remember" && (
+                    <p className="section-hint" style={{ marginTop: 10 }}>
+                      {"Generating diagram…"}
+                    </p>
+                  )
+                )}
+              </>
             ),
           },
         ]
@@ -262,6 +277,9 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
     <>
       <h1>{subjectDisplayName ? `${subjectDisplayName} · ${subtopicId}` : subtopicId}</h1>
       <p className="lede">{subtopicText}</p>
+      <p style={{ fontSize: 12.5, marginBottom: 12 }}>
+        <a href={`/sources/${encodeURIComponent(subtopicId)}`}>Browse grounding sources (NCERT, govt, current affairs) →</a>
+      </p>
 
       <div className="segmented" style={{ marginBottom: 8 }}>
         {modules.map((m, i) => (

@@ -51,7 +51,8 @@ export async function GET(request) {
           (table_name = 'mastery' and column_name = 'current_module_index') or
           (table_name = 'model_questions' and column_name = 'module_id') or
           (table_name = 'attempts' and column_name = 'module_id') or
-          (table_name = 'lesson_modules' and column_name = 'pyq_id')
+          (table_name = 'lesson_modules' and column_name = 'pyq_id') or
+          (table_name = 'lesson_modules' and column_name = 'visual_image_data_uri')
         )
       order by table_name, column_name
     `);
