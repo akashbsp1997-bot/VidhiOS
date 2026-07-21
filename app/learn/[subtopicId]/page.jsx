@@ -44,6 +44,18 @@ export default function LearnPage({ params }) {
     const url = `/api/module-lesson?subtopicId=${encodeURIComponent(subtopicId)}&moduleIndex=${initialModuleIndex}&stage=teach${upgrade ? "&upgrade=true" : ""}`;
     safeFetchJson(url)
       .then((data) => {
+        if (data.error === "locked") {
+          setError(`This subtopic is locked — reach ${data.requiredMasteryPct}% mastery on ${data.requiredSubtopicText} first (currently ${data.currentMasteryPct}%).`);
+          return;
+        }
+        if (data.error === "module_locked") {
+          setError(`This module is locked — reach ${data.requiredMasteryPct}% mastery on this subtopic first (currently ${data.currentMasteryPct}%).`);
+          return;
+        }
+        if (data.error === "stage_locked") {
+          setError("That stage isn't unlocked yet — finish the earlier stages of this module first.");
+          return;
+        }
         if (data.error) {
           setError(data.error);
           return;

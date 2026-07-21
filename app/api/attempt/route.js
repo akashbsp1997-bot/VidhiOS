@@ -20,12 +20,14 @@ import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { subtopics, mastery, pyqs, modelQuestions, attempts, sources, lessonModules } from "../../../db/schema.js";
-import { chooseSubtopic, chooseQuestionPlan, updateMastery, nextTier, pushRecentScore } from "../../../lib/adaptive/engine.js";
+import { chooseSubtopic, chooseQuestionPlan, updateMastery, nextTier, tierEscalationBlockedInfo, pushRecentScore } from "../../../lib/adaptive/engine.js";
 import { gradeAnswer } from "../../../lib/ai/grade.js";
 import { generateQuestion } from "../../../lib/ai/generateQuestion.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
+import { loadPaperLockMap } from "../../../lib/adaptive/lockState.js";
+import { computeModuleLocks, isStageUnlocked } from "../../../lib/adaptive/unlocks.js";
 
 // A module-level Test (components/ModuleTestPanel.jsx) always wants exactly
 // its one question for a known subtopic+module, never the adaptive engine's
@@ -41,7 +43,7 @@ import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 // is no fabricated mapping here, unlike an AI-invented module (pyqId null)
 // where a real PYQ genuinely wouldn't fit and the existing generate-and-cache
 // path below still applies.
-async function handleModuleQuestion(userId, subtopicId, moduleId) {
+async function handleModuleQuestion(userId, subtopicId, moduleId, { force = false } = {}) {
   const subtopicRows = await db.select().from(subtopics).where(eq(subtopics.id, subtopicId));
   const subtopicRow = subtopicRows[0];
   if (!subtopicRow) return NextResponse.json({ error: `Unknown subtopic: ${subtopicId}` }, { status: 404 });
@@ -52,8 +54,34 @@ async function handleModuleQuestion(userId, subtopicId, moduleId) {
     return NextResponse.json({ error: `Unknown module ${moduleId} for subtopic ${subtopicId}` }, { status: 404 });
   }
 
+  const lockMap = await loadPaperLockMap(userId, subtopicRow.subjectId, subtopicRow.paper);
+  if (lockMap.get(subtopicId)?.locked) {
+    return NextResponse.json({ error: "locked", ...lockMap.get(subtopicId) }, { status: 403 });
+  }
+
   const masteryRows = await db.select().from(mastery).where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
-  const tier = masteryRows[0]?.currentTier ?? 1;
+  const masteryRow = masteryRows[0];
+  const tier = masteryRow?.currentTier ?? 1;
+  const moduleProgress = masteryRow?.moduleProgress ?? {};
+  const subtopicMasteryScore = masteryRow?.masteryScore ?? 0;
+
+  const allModules = await db
+    .select({ id: lessonModules.id, orderIndex: lessonModules.orderIndex })
+    .from(lessonModules)
+    .where(eq(lessonModules.subtopicId, subtopicId));
+  const moduleLocks = computeModuleLocks(
+    [...allModules].sort((a, b) => a.orderIndex - b.orderIndex),
+    moduleProgress,
+    subtopicMasteryScore
+  );
+  if (moduleLocks.get(moduleId)?.locked) {
+    return NextResponse.json({ error: "module_locked", ...moduleLocks.get(moduleId) }, { status: 403 });
+  }
+
+  const unlockedStage = moduleProgress[String(moduleId)]?.highestStage ?? "teach";
+  if (!isStageUnlocked("test", unlockedStage)) {
+    return NextResponse.json({ error: "stage_locked", requiredStage: unlockedStage }, { status: 403 });
+  }
 
   if (moduleRow.pyqId) {
     const pyqRows = await db.select().from(pyqs).where(eq(pyqs.id, moduleRow.pyqId));
@@ -71,12 +99,30 @@ async function handleModuleQuestion(userId, subtopicId, moduleId) {
     });
   }
 
-  const cachedRows = await db
-    .select()
-    .from(modelQuestions)
-    .where(and(eq(modelQuestions.subtopicId, subtopicId), eq(modelQuestions.moduleId, moduleId)));
+  // force=true is the AI-invented-module retry mechanism (see
+  // components/ModuleTestPanel.jsx's "Retry this test"): a PYQ-anchored
+  // module's question is fixed real text, so retry there is a pure
+  // client-side state reset (handled above, this branch never sees it) --
+  // but an AI-invented module has no "harder version" of one fixed question,
+  // so a genuine retry means generating a fresh one instead of reusing the
+  // cache. Without `force`, prefer a cached row this user hasn't already
+  // attempted, over always reusing the very first one ever generated.
+  let questionRow;
+  if (!force) {
+    const cachedRows = await db
+      .select()
+      .from(modelQuestions)
+      .where(and(eq(modelQuestions.subtopicId, subtopicId), eq(modelQuestions.moduleId, moduleId)));
+    if (cachedRows.length) {
+      const seenRows = await db
+        .select({ id: attempts.questionRefId })
+        .from(attempts)
+        .where(and(eq(attempts.userId, userId), eq(attempts.moduleId, moduleId)));
+      const seen = new Set(seenRows.map((r) => String(r.id)));
+      questionRow = cachedRows.find((q) => !seen.has(String(q.id))) || cachedRows[0];
+    }
+  }
 
-  let questionRow = cachedRows[0];
   if (!questionRow) {
     const generated = await generateQuestion({
       subtopicText: subtopicRow.topicText,
@@ -115,11 +161,12 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const forcedSubtopicId = searchParams.get("subtopicId") || undefined;
   const moduleIdParam = searchParams.get("moduleId");
+  const force = searchParams.get("force") === "true";
 
   try {
     if (moduleIdParam) {
       if (!forcedSubtopicId) return NextResponse.json({ error: "subtopicId is required alongside moduleId" }, { status: 400 });
-      return await handleModuleQuestion(userId, forcedSubtopicId, Number(moduleIdParam));
+      return await handleModuleQuestion(userId, forcedSubtopicId, Number(moduleIdParam), { force });
     }
 
     const allSubtopics = await db.select().from(subtopics);
@@ -132,7 +179,41 @@ export async function GET(request) {
     const allMastery = await db.select().from(mastery).where(eq(mastery.userId, userId));
     const masteryBySubtopic = Object.fromEntries(allMastery.map((m) => [m.subtopicId, m]));
 
-    const subtopicStates = allSubtopics.map((s) => ({
+    // Direct-URL bypass check (e.g. /practice/{lockedSubtopicId}) -- a
+    // locked subtopic must 403 here even though nothing in the UI would
+    // normally link to it.
+    if (forcedSubtopicId) {
+      const forcedRow = allSubtopics.find((s) => s.id === forcedSubtopicId);
+      if (forcedRow) {
+        const lockMap = await loadPaperLockMap(userId, forcedRow.subjectId, forcedRow.paper);
+        if (lockMap.get(forcedSubtopicId)?.locked) {
+          return NextResponse.json({ error: "locked", ...lockMap.get(forcedSubtopicId) }, { status: 403 });
+        }
+      }
+    }
+
+    // No forced subtopic: the adaptive lottery must never land on a locked
+    // one, so filter down to unlocked subtopics first, one loadPaperLockMap
+    // call per (subjectId, paper) group actually present.
+    let eligibleSubtopics = allSubtopics;
+    if (!forcedSubtopicId) {
+      const groups = {};
+      for (const s of allSubtopics) {
+        const key = `${s.subjectId}::${s.paper}`;
+        (groups[key] ??= []).push(s);
+      }
+      const lockedIds = new Set();
+      for (const key of Object.keys(groups)) {
+        const [subjectId, paperStr] = key.split("::");
+        const lockMap = await loadPaperLockMap(userId, subjectId, Number(paperStr));
+        for (const [id, info] of lockMap.entries()) {
+          if (info.locked) lockedIds.add(id);
+        }
+      }
+      eligibleSubtopics = allSubtopics.filter((s) => !lockedIds.has(s.id));
+    }
+
+    const subtopicStates = eligibleSubtopics.map((s) => ({
       id: s.id,
       mastery: masteryBySubtopic[s.id]?.masteryScore ?? 0,
       pyqFrequency: s.pyqFrequency,
@@ -291,7 +372,23 @@ export async function POST(request) {
     const score01 = feedback.score / 100;
     const newMasteryScore = updateMastery(oldMastery, attemptsSoFar, score01);
     const recentScores = pushRecentScore(existing?.recentScores ?? [], score01);
-    const newTier = nextTier(existing?.currentTier ?? 1, recentScores);
+    const oldTier = existing?.currentTier ?? 1;
+    // Gated by the just-updated mastery score, not the pre-attempt one --
+    // this attempt's own score is what may have just crossed the tier's
+    // mastery floor (see lib/adaptive/engine.js's TIER_MASTERY_FLOOR).
+    const newTier = nextTier(oldTier, recentScores, newMasteryScore);
+    const tierHeldBack = tierEscalationBlockedInfo(oldTier, recentScores, newMasteryScore);
+
+    const moduleProgress = { ...(existing?.moduleProgress ?? {}) };
+    if (moduleId) {
+      const key = String(moduleId);
+      const prevEntry = moduleProgress[key] ?? {};
+      moduleProgress[key] = {
+        ...prevEntry,
+        testAttempts: (prevEntry.testAttempts ?? 0) + 1,
+        bestScore01: Math.max(prevEntry.bestScore01 ?? 0, score01),
+      };
+    }
 
     if (existing) {
       await db
@@ -302,6 +399,7 @@ export async function POST(request) {
           currentTier: newTier,
           recentScores,
           lastAttemptAt: new Date(),
+          moduleProgress,
         })
         .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
     } else {
@@ -313,12 +411,13 @@ export async function POST(request) {
         currentTier: newTier,
         recentScores,
         lastAttemptAt: new Date(),
+        moduleProgress,
       });
     }
 
     return NextResponse.json({
       feedback,
-      mastery: { score: newMasteryScore, tier: newTier, attemptsCount: attemptsSoFar + 1 },
+      mastery: { score: newMasteryScore, tier: newTier, attemptsCount: attemptsSoFar + 1, tierHeldBack },
     });
   } catch (err) {
     console.error(err);

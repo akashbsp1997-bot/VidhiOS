@@ -22,7 +22,11 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
     fetch(`/api/attempt${qs}`)
       .then((r) => r.json())
       .then((data) => {
-        if (data.error) setError(data.error);
+        if (data.error === "locked") {
+          setError(
+            `This subtopic is locked — reach ${data.requiredMasteryPct}% mastery on ${data.requiredSubtopicText} first (currently ${data.currentMasteryPct}%).`
+          );
+        } else if (data.error) setError(data.error);
         else setQuestion(data);
       })
       .catch((e) => setError(e.message))
@@ -177,6 +181,14 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
               <p style={{ fontSize: 13, color: "var(--ink-soft)" }}>
                 Subtopic mastery now {Math.round(masteryAfter.score * 100)}% · tier {masteryAfter.tier} ·{" "}
                 {masteryAfter.attemptsCount} attempt{masteryAfter.attemptsCount === 1 ? "" : "s"} recorded
+              </p>
+            )}
+
+            {masteryAfter?.tierHeldBack && (
+              <p style={{ fontSize: 13, color: "var(--maroon)" }}>
+                Two strong answers in a row would normally raise the difficulty, but subtopic mastery is still below{" "}
+                {masteryAfter.tierHeldBack.requiredMasteryPct}% (currently {masteryAfter.tierHeldBack.currentMasteryPct}%) —
+                keep practicing at this tier to unlock harder questions.
               </p>
             )}
 

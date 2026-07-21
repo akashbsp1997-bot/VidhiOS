@@ -87,16 +87,29 @@ export default function Dashboard() {
         <div className="card" key={paper}>
           <h2>{paper}</h2>
           {items.map((s) => (
-            <div className="subtopic-row" key={s.id}>
+            <div className={`subtopic-row${s.locked ? " locked" : ""}`} key={s.id}>
               <span className="subtopic-code">{s.id}</span>
               <span className="subtopic-text">
-                <a href={`/learn/${s.id}`}>{s.topicText}</a>
+                {s.locked ? (
+                  <span>{s.topicText}</span>
+                ) : (
+                  <a href={`/learn/${s.id}`}>{s.topicText}</a>
+                )}
                 <div className="subtopic-meta">
-                  {s.section} · {s.pyqFrequency} PYQ appearance{s.pyqFrequency === 1 ? "" : "s"} · {s.attemptsCount}{" "}
-                  attempted ·{" "}
-                  <a href={`/sources/${s.id}`}>
-                    {s.sourceCount} source{s.sourceCount === 1 ? "" : "s"}
-                  </a>
+                  {s.locked ? (
+                    <span className="locked-pill">
+                      Locked — reach {s.requiredMasteryPct}% mastery on {s.requiredSubtopicText} first (
+                      {s.currentMasteryPct}%/{s.requiredMasteryPct}%)
+                    </span>
+                  ) : (
+                    <>
+                      {s.section} · {s.pyqFrequency} PYQ appearance{s.pyqFrequency === 1 ? "" : "s"} · {s.attemptsCount}{" "}
+                      attempted ·{" "}
+                      <a href={`/sources/${s.id}`}>
+                        {s.sourceCount} source{s.sourceCount === 1 ? "" : "s"}
+                      </a>
+                    </>
+                  )}
                 </div>
               </span>
               <span className="tier-pill" style={{ fontSize: 11 }}>

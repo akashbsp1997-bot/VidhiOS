@@ -1,0 +1,1 @@
+ALTER TABLE "mastery" ADD COLUMN "module_progress" jsonb DEFAULT '{}'::jsonb NOT NULL;

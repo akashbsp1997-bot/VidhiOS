@@ -71,6 +71,13 @@
       "when": 1784652791416,
       "tag": "0009_ordinary_taskmaster",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784658984057,
+      "tag": "0010_white_living_lightning",
+      "breakpoints": true
     }
   ]
 }

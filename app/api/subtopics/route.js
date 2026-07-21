@@ -4,34 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { subtopics, mastery, sources, subjects, pyqs } from "../../../db/schema.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
-
-// A subtopic's PYQ marks range 10-20 (see lib/ai/generateQuestion.js's
-// allowedMarks) -- normalizes average marks onto the same 0-1 scale as
-// sourceAdvancedness below, so the two signals can be averaged directly.
-const MIN_PYQ_MARKS = 10;
-const MAX_PYQ_MARKS = 20;
-
-/**
- * Basics-to-advanced score (0 = most foundational, 1 = most advanced) for
- * ordering the dashboard within a paper (see app/page.jsx) -- combines two
- * independent signals per the user's explicit choice ("both, combined"):
- *   - source-tier composition: a subtopic grounded mainly in NCERT sources
- *     is foundational; one leaning on current-affairs/govt/external
- *     sources is advanced (same source-tier thinking as
- *     app/sources/[subtopicId]/page.jsx's grouping).
- *   - real PYQ marks: higher-mark UPSC questions tend to be more
- *     analytical/synthesis-level (see lib/ai/generateQuestion.js's
- *     TIER_BRIEF), lower-mark ones more direct-recall.
- * A subtopic missing one signal (no sources yet, or no real PYQs) falls
- * back to neutral (0.5) for that half rather than skewing the score on
- * absence of data.
- */
-function difficultyScore(sourceBucket, pyqMarksList) {
-  const sourceAdvancedness = sourceBucket && sourceBucket.total > 0 ? 1 - sourceBucket.ncert / sourceBucket.total : 0.5;
-  const avgMarks = pyqMarksList && pyqMarksList.length ? pyqMarksList.reduce((a, b) => a + b, 0) / pyqMarksList.length : 15;
-  const pyqAdvancedness = Math.min(1, Math.max(0, (avgMarks - MIN_PYQ_MARKS) / (MAX_PYQ_MARKS - MIN_PYQ_MARKS)));
-  return (sourceAdvancedness + pyqAdvancedness) / 2;
-}
+import { computeDifficultyScore, orderSubtopicsWithinPaper, computeSubtopicLocks } from "../../../lib/adaptive/unlocks.js";
 
 export async function GET() {
   const userId = await getSessionUserId();
@@ -66,34 +39,44 @@ export async function GET() {
       }
     }
 
-    const result = allSubtopics
-      .map((s) => ({
-        id: s.id,
-        subjectId: s.subjectId,
-        subjectDisplayName: subjectById[s.subjectId]?.displayName ?? s.subjectId,
-        paper: s.paper,
-        section: s.section,
-        topicText: s.topicText,
-        pyqFrequency: s.pyqFrequency,
-        masteryScore: masteryBySubtopic[s.id]?.masteryScore ?? 0,
-        currentTier: masteryBySubtopic[s.id]?.currentTier ?? 1,
-        attemptsCount: masteryBySubtopic[s.id]?.attemptsCount ?? 0,
-        stage: masteryBySubtopic[s.id]?.stage ?? "teach",
-        sourceCount: sourceCountBySubtopic[s.id] ?? 0,
-        difficultyScore: difficultyScore(sourceTierBySubtopic[s.id], pyqMarksBySubtopic[s.id]),
-      }))
-      // Study-path order: paper first, then basics -> advanced within it,
-      // pyqFrequency as a tie-breaker among similarly-difficulty subtopics
-      // (surfaces higher-yield ones first) -- this is purely a dashboard
-      // presentation order, unrelated to lib/adaptive/engine.js's separate
-      // weighted-random subtopic selection for actual practice sessions.
-      .sort(
-        (a, b) =>
-          a.paper - b.paper ||
-          a.difficultyScore - b.difficultyScore ||
-          b.pyqFrequency - a.pyqFrequency ||
-          a.id.localeCompare(b.id)
-      );
+    const withScore = allSubtopics.map((s) => ({
+      id: s.id,
+      subjectId: s.subjectId,
+      subjectDisplayName: subjectById[s.subjectId]?.displayName ?? s.subjectId,
+      paper: s.paper,
+      section: s.section,
+      topicText: s.topicText,
+      pyqFrequency: s.pyqFrequency,
+      masteryScore: masteryBySubtopic[s.id]?.masteryScore ?? 0,
+      currentTier: masteryBySubtopic[s.id]?.currentTier ?? 1,
+      attemptsCount: masteryBySubtopic[s.id]?.attemptsCount ?? 0,
+      stage: masteryBySubtopic[s.id]?.stage ?? "teach",
+      sourceCount: sourceCountBySubtopic[s.id] ?? 0,
+      difficultyScore: computeDifficultyScore(sourceTierBySubtopic[s.id], pyqMarksBySubtopic[s.id]),
+    }));
+
+    // Study-path order: paper first, then basics -> advanced within it,
+    // pyqFrequency as a tie-breaker among similarly-difficulty subtopics
+    // (surfaces higher-yield ones first) -- this is purely a dashboard
+    // presentation order, unrelated to lib/adaptive/engine.js's separate
+    // weighted-random subtopic selection for actual practice sessions.
+    // Grouped by (subjectId, paper) so each paper's chain-lock computation
+    // (computeSubtopicLocks) only ever compares subtopics within the same
+    // paper, matching lib/adaptive/lockState.js's server-side enforcement.
+    const byPaperKey = {};
+    for (const s of withScore) {
+      const key = `${s.subjectId}::${s.paper}`;
+      (byPaperKey[key] ??= []).push(s);
+    }
+
+    let result = [];
+    for (const key of Object.keys(byPaperKey)) {
+      const ordered = orderSubtopicsWithinPaper(byPaperKey[key]);
+      const masteryScoreById = Object.fromEntries(ordered.map((s) => [s.id, s.masteryScore]));
+      const locks = computeSubtopicLocks(ordered, masteryScoreById);
+      result.push(...ordered.map((s) => ({ ...s, ...locks.get(s.id) })));
+    }
+    result.sort((a, b) => a.paper - b.paper || a.difficultyScore - b.difficultyScore || b.pyqFrequency - a.pyqFrequency || a.id.localeCompare(b.id));
 
     return NextResponse.json({ subtopics: result });
   } catch (err) {

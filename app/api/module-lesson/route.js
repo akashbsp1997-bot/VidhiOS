@@ -22,6 +22,8 @@ import { casesSeed } from "../../../db/seed/cases.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
+import { loadPaperLockMap } from "../../../lib/adaptive/lockState.js";
+import { computeModuleLocks, isStageUnlocked, validateStageAdvance } from "../../../lib/adaptive/unlocks.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
 
@@ -66,12 +68,17 @@ function selectPyqCandidates(pyqCandidates) {
 // than denormalizing that data onto lesson_modules itself -- matches how
 // this codebase handles other FK relationships (e.g. sources.storageUploadId)
 // by referencing and re-fetching instead of duplicating.
-async function buildModulesSummary(moduleRows) {
+// `moduleLocks` (optional Map from computeModuleLocks) merges locked/lockReason
+// into each entry so the client never needs a separate lock-fetching round
+// trip -- omit it only for the allModulesComplete response, where lock state
+// is moot.
+async function buildModulesSummary(moduleRows, moduleLocks) {
   const pyqIds = moduleRows.map((m) => m.pyqId).filter(Boolean);
   const anchorRows = pyqIds.length ? await db.select().from(pyqs).where(inArray(pyqs.id, pyqIds)) : [];
   const anchorById = Object.fromEntries(anchorRows.map((p) => [p.id, p]));
   return moduleRows.map((m) => {
     const anchor = m.pyqId ? anchorById[m.pyqId] : null;
+    const lock = moduleLocks?.get(m.id);
     return {
       id: m.id,
       orderIndex: m.orderIndex,
@@ -80,6 +87,8 @@ async function buildModulesSummary(moduleRows) {
       pyqId: m.pyqId ?? null,
       pyqYear: anchor?.year ?? null,
       pyqMarks: anchor?.marks ?? null,
+      locked: lock?.locked ?? false,
+      lockReason: lock?.reason ?? null,
     };
   });
 }
@@ -104,6 +113,9 @@ function nextMissingPhase(row, requiredPhases, stage, force) {
 }
 
 export async function GET(request) {
+  const userId = await getSessionUserId();
+  if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const subtopicId = searchParams.get("subtopicId");
   const moduleIndex = Number(searchParams.get("moduleIndex") ?? 0);
@@ -122,9 +134,23 @@ export async function GET(request) {
     const subtopicRow = subtopicRows[0];
     if (!subtopicRow) return NextResponse.json({ error: `Unknown subtopic: ${subtopicId}` }, { status: 404 });
 
+    const lockMap = await loadPaperLockMap(userId, subtopicRow.subjectId, subtopicRow.paper);
+    const subtopicLockInfo = lockMap.get(subtopicId);
+    if (subtopicLockInfo?.locked) {
+      return NextResponse.json({ error: "locked", ...subtopicLockInfo }, { status: 403 });
+    }
+
     const subjectRows = await db.select().from(subjects).where(eq(subjects.id, subtopicRow.subjectId));
     const subjectDisplayName = subjectRows[0]?.displayName ?? subtopicRow.subjectId;
     const subjectConfig = getSubjectConfig(subtopicRow.subjectId);
+
+    const masteryRows = await db
+      .select()
+      .from(mastery)
+      .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
+    const masteryRow = masteryRows[0];
+    const subtopicMasteryScore = masteryRow?.masteryScore ?? 0;
+    const moduleProgress = masteryRow?.moduleProgress ?? {};
 
     const modules = await db
       .select()
@@ -166,29 +192,45 @@ export async function GET(request) {
         .values(planned.map((m, i) => ({ subtopicId, orderIndex: i, title: m.title, scopeNote: m.scopeNote, pyqId: m.pyqId })))
         .returning();
 
+      // computeModuleLocks relies on array order matching orderIndex order --
+      // RETURNING typically preserves multi-row VALUES order in Postgres, but
+      // this sort makes that assumption explicit rather than relied-upon.
+      const insertedOrdered = [...inserted].sort((a, b) => a.orderIndex - b.orderIndex);
+      const freshLocks = computeModuleLocks(insertedOrdered, moduleProgress, subtopicMasteryScore);
       return NextResponse.json({
         subtopicId,
         subtopicText: subtopicRow.topicText,
         subjectDisplayName,
-        modules: await buildModulesSummary(inserted),
+        modules: await buildModulesSummary(insertedOrdered, freshLocks),
         ready: false,
         nextPhase: "module-teach",
       });
     }
+
+    const moduleLocks = computeModuleLocks(modules, moduleProgress, subtopicMasteryScore);
 
     if (moduleIndex >= modules.length) {
       return NextResponse.json({
         subtopicId,
         subtopicText: subtopicRow.topicText,
         subjectDisplayName,
-        modules: await buildModulesSummary(modules),
+        modules: await buildModulesSummary(modules, moduleLocks),
         allModulesComplete: true,
       });
     }
 
     const row = modules[moduleIndex];
+    if (moduleLocks.get(row.id)?.locked) {
+      return NextResponse.json({ error: "module_locked", ...moduleLocks.get(row.id) }, { status: 403 });
+    }
+
+    const unlockedStage = moduleProgress[String(row.id)]?.highestStage ?? "teach";
+    if (!isStageUnlocked(stage, unlockedStage)) {
+      return NextResponse.json({ error: "stage_locked", requiredStage: unlockedStage }, { status: 403 });
+    }
+
     const phase = nextMissingPhase(row, STAGE_REQUIRES[stage] ?? [], stage, force);
-    const modulesSummary = await buildModulesSummary(modules);
+    const modulesSummary = await buildModulesSummary(modules, moduleLocks);
 
     if (phase === null) {
       return NextResponse.json({
@@ -197,6 +239,7 @@ export async function GET(request) {
         subjectDisplayName,
         modules: modulesSummary,
         moduleIndex,
+        unlockedStage,
         ...row,
         ready: true,
         cached: true,
@@ -234,6 +277,7 @@ export async function GET(request) {
         subjectDisplayName,
         modules: modulesSummary,
         moduleIndex,
+        unlockedStage,
         ...saved,
         ready: false,
         nextPhase: "practice",
@@ -267,6 +311,7 @@ export async function GET(request) {
         subjectDisplayName,
         modules: modulesSummary,
         moduleIndex,
+        unlockedStage,
         ...saved,
         ready,
         nextPhase: ready ? null : "image",
@@ -288,6 +333,7 @@ export async function GET(request) {
       subjectDisplayName,
       modules: modulesSummary,
       moduleIndex,
+      unlockedStage,
       ...saved,
       ready: true,
       nextPhase: null,
@@ -300,31 +346,57 @@ export async function GET(request) {
 
 // Mirrors /api/lesson's POST exactly (mastery.stage bookkeeping), extended
 // with currentModuleIndex so re-entering a subtopic resumes on the right
-// module.
+// module. `action` distinguishes a plain tab-click bookkeeping POST ("view",
+// the default -- today's exact behavior, no unlock change) from a stage's
+// own Continue button ("advance"), which is what actually raises
+// moduleProgress[moduleId].highestStage -- the high-water mark
+// lib/adaptive/unlocks.js's isStageUnlocked reads. Without this distinction,
+// clicking the "Remember" tab directly would silently unlock past
+// Teach/Grasp, exactly the bug decision 1 in the design closes.
 export async function POST(request) {
   const userId = await getSessionUserId();
   if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   try {
-    const { subtopicId, moduleIndex, stage } = await request.json();
+    const { subtopicId, moduleIndex, stage, action } = await request.json();
     if (!subtopicId || typeof moduleIndex !== "number" || !VALID_STAGES.includes(stage)) {
       return NextResponse.json({ error: "subtopicId, a numeric moduleIndex, and a valid stage are required" }, { status: 400 });
     }
+    const effectiveAction = action === "advance" ? "advance" : "view";
+
+    const moduleRows = await db
+      .select()
+      .from(lessonModules)
+      .where(and(eq(lessonModules.subtopicId, subtopicId), eq(lessonModules.orderIndex, moduleIndex)));
+    const moduleRow = moduleRows[0];
+    if (!moduleRow) return NextResponse.json({ error: `No module at index ${moduleIndex} for subtopic ${subtopicId}` }, { status: 404 });
 
     const existingRows = await db
       .select()
       .from(mastery)
       .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
-    if (existingRows[0]) {
-      await db
-        .update(mastery)
-        .set({ stage, currentModuleIndex: moduleIndex })
-        .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
-    } else {
-      await db.insert(mastery).values({ userId, subtopicId, stage, currentModuleIndex: moduleIndex });
+    const existing = existingRows[0];
+    const moduleProgress = { ...(existing?.moduleProgress ?? {}) };
+    const key = String(moduleRow.id);
+    const currentUnlockedStage = moduleProgress[key]?.highestStage ?? "teach";
+
+    if (effectiveAction === "advance") {
+      if (!validateStageAdvance(currentUnlockedStage, stage)) {
+        return NextResponse.json({ error: "Cannot advance more than one stage at a time", currentUnlockedStage }, { status: 400 });
+      }
+      moduleProgress[key] = { ...moduleProgress[key], highestStage: stage };
     }
 
-    return NextResponse.json({ subtopicId, moduleIndex, stage });
+    if (existing) {
+      await db
+        .update(mastery)
+        .set({ stage, currentModuleIndex: moduleIndex, moduleProgress })
+        .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
+    } else {
+      await db.insert(mastery).values({ userId, subtopicId, stage, currentModuleIndex: moduleIndex, moduleProgress });
+    }
+
+    return NextResponse.json({ subtopicId, moduleIndex, stage, unlockedStage: moduleProgress[key]?.highestStage ?? "teach" });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });

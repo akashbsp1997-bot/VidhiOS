@@ -57,6 +57,25 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
       .finally(() => setGrading(false));
   }
 
+  // For a PYQ-anchored question the text is fixed real content -- retrying
+  // is just a local state reset, GET would deterministically re-serve the
+  // exact same question anyway. An AI-invented question has no "harder
+  // version" of itself, so retrying there means generating a genuinely
+  // different one via force=true (see app/api/attempt/route.js's
+  // handleModuleQuestion).
+  function retryTest() {
+    setAnswerText("");
+    setFeedback(null);
+    setError(null);
+    if (question?.questionSource === "pyq") return;
+    setLoading(true);
+    fetch(`/api/attempt?subtopicId=${encodeURIComponent(subtopicId)}&moduleId=${moduleId}&force=true`)
+      .then((r) => r.json())
+      .then((data) => (data.error ? setError(data.error) : setQuestion(data)))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }
+
   if (loading) return <div className="loading">Preparing this module's question…</div>;
   if (error)
     return (
@@ -122,9 +141,14 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
             </>
           )}
 
-          <button className="btn btn-primary" onClick={onNext} style={{ marginTop: 8 }}>
-            {isLastModule ? "Finish this subtopic →" : "Next module →"}
-          </button>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button className="btn" onClick={retryTest}>
+              Retry this test
+            </button>
+            <button className="btn btn-primary" onClick={onNext}>
+              {isLastModule ? "Finish this subtopic →" : "Next module →"}
+            </button>
+          </div>
         </div>
       )}
 

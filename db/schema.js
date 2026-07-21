@@ -283,6 +283,17 @@ export const mastery = pgTable(
     // for this subtopic, so re-entering resumes where they left off. Null
     // for a subtopic still on the legacy (pre-module) lessons flow.
     currentModuleIndex: integer("current_module_index"),
+    // Per-module mastery-gating state, keyed by lessonModules.id (jsonb
+    // object keys are always strings): { [moduleId]: { highestStage:
+    // "teach"|"grasp"|"remember"|"test", testAttempts: number, bestScore01:
+    // number } }. highestStage is a sequential-completion high-water mark --
+    // distinct from `stage` above (just "where the student is currently
+    // looking," which moves backward freely via tab clicks). testAttempts
+    // is what the next module's unlock check (lib/adaptive/unlocks.js)
+    // requires be >=1, closing the loophole where unrelated prior attempts
+    // elsewhere in the subtopic could already satisfy a pure mastery-score
+    // check before this specific module was ever attempted.
+    moduleProgress: jsonb("module_progress").notNull().default({}),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId, table.subtopicId] }),
