@@ -14,6 +14,7 @@ import {
   jsonb,
   serial,
   primaryKey,
+  unique,
 } from "drizzle-orm/pg-core";
 
 // Supabase Auth's own schema/table -- referenced, never created/migrated by us.
@@ -216,6 +217,11 @@ export const modelQuestions = pgTable("model_questions", {
   marks: integer("marks").notNull().default(15),
   questionText: text("question_text").notNull(),
   groundedSourceIds: integer("grounded_source_ids").array(), // sources.id[] used to ground generation, if any
+  // Nullable: set only for a question generated with a moduleScope hint (see
+  // lib/ai/generateQuestion.js) -- lets app/api/attempt's module-Test flow
+  // find/reuse its one cached question via WHERE moduleId = X, without
+  // disturbing the subtopic-wide pool this column defaults to (null) for.
+  moduleId: integer("module_id").references(() => lessonModules.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -241,6 +247,11 @@ export const attempts = pgTable("attempts", {
   answerText: text("answer_text").notNull(),
   score: integer("score"), // 0-100 from AI grading; null while grading is in flight
   feedback: jsonb("feedback"), // { strengths: [], weaknesses: [], missedProvisions: [], verdict: "" }
+  // Nullable: set only when this attempt came from a module-scoped Test
+  // (ModuleTestPanel), for traceability/UI labeling only -- no adaptive-engine
+  // logic branches on it, mastery/tier updates read/write the same
+  // (userId, subtopicId) mastery row regardless of whether this is set.
+  moduleId: integer("module_id").references(() => lessonModules.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -267,7 +278,11 @@ export const mastery = pgTable(
     currentTier: integer("current_tier").notNull().default(1),
     recentScores: jsonb("recent_scores").notNull().default([]),
     lastAttemptAt: timestamp("last_attempt_at"),
-    stage: text("stage").notNull().default("teach"),
+    stage: text("stage").notNull().default("teach"), // which of teach/grasp/remember/test within the CURRENT module (or, for a legacy subtopic, within the whole subtopic)
+    // Nullable: which lesson_modules.orderIndex the student is currently on
+    // for this subtopic, so re-entering resumes where they left off. Null
+    // for a subtopic still on the legacy (pre-module) lessons flow.
+    currentModuleIndex: integer("current_module_index"),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId, table.subtopicId] }),
@@ -304,3 +319,51 @@ export const lessons = pgTable("lessons", {
   visualImageDataUri: text("visual_image_data_uri"),
   generatedAt: timestamp("generated_at").notNull().defaultNow(),
 });
+
+/**
+ * A subtopic decomposed into independently teachable/practiceable/testable
+ * sub-concepts (see lib/ai/generateModules.js's generateModulePlan) -- each
+ * row gets its OWN full Teach -> Grasp -> Remember -> Test cycle via
+ * app/api/module-lesson/route.js, rather than one cycle covering the whole
+ * subtopic (that's what `lessons` above still does, kept alive as the
+ * legacy flow for subtopics that already have a complete row there).
+ *
+ * Rows are bulk-inserted as skeletons (title/scopeNote only) the moment a
+ * subtopic's module plan is generated, THEN filled in lazily -- unlike
+ * `lessons` (only ever inserted once its core phase is ready), so
+ * `generatedAt`/`practiceGeneratedAt` are both nullable here with no
+ * default, not "row exists" proxies.
+ *
+ * Deliberately lighter than `lessons`: no keyProvisions/caseLaw split (flat
+ * keyPoints bullets instead), no perspectives/answerFramework (exam-answer
+ * structuring belongs at the whole-subtopic/PYQ level, not a module slice),
+ * no image/visualOutline phase at all, one mnemonic instead of an array --
+ * this keeps the AI-call multiplier from a subtopic's module count sane
+ * (see the plan doc / PR description for the concrete math).
+ */
+export const lessonModules = pgTable(
+  "lesson_modules",
+  {
+    id: serial("id").primaryKey(),
+    subtopicId: text("subtopic_id")
+      .notNull()
+      .references(() => subtopics.id),
+    orderIndex: integer("order_index").notNull(), // 0-based sequence within the subtopic
+    title: text("title").notNull(),
+    scopeNote: text("scope_note").notNull().default(""), // planning output, fed back into every module-scoped prompt as narrowing context
+    // Teach phase, null until first Teach visit to this module
+    teachContent: text("teach_content"),
+    keyPoints: jsonb("key_points").notNull().default([]), // flat bullet strings, not structured keyProvisions/caseLaw objects
+    generatedAt: timestamp("generated_at"),
+    // Practice phase -- covers BOTH Grasp and Remember (no separate image
+    // phase), null until first Grasp visit to this module
+    examples: jsonb("examples").notNull().default([]),
+    exercises: jsonb("exercises").notNull().default([]),
+    mnemonic: jsonb("mnemonic"), // single {device, explanation} object, or null
+    practiceGeneratedAt: timestamp("practice_generated_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    subtopicOrderUnique: unique("lesson_modules_subtopic_order_unique").on(table.subtopicId, table.orderIndex),
+  })
+);

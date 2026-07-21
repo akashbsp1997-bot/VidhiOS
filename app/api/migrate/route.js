@@ -47,20 +47,24 @@ export async function GET(request) {
           (table_name = 'ingest_uploads' and column_name = 'chunks_processed') or
           (table_name = 'attempts' and column_name = 'user_id') or
           (table_name = 'mastery' and column_name = 'user_id') or
-          (table_name = 'lessons' and column_name = 'practice_generated_at')
+          (table_name = 'lessons' and column_name = 'practice_generated_at') or
+          (table_name = 'mastery' and column_name = 'current_module_index') or
+          (table_name = 'model_questions' and column_name = 'module_id') or
+          (table_name = 'attempts' and column_name = 'module_id')
         )
       order by table_name, column_name
     `);
     const tables = await db.execute(sql`
       select table_name from information_schema.tables
       where table_schema = 'public'
-        and table_name in ('subjects', 'ingest_uploads', 'ingest_items')
+        and table_name in ('subjects', 'ingest_uploads', 'ingest_items', 'lesson_modules')
     `);
     const tableNames = tables.map((r) => r.table_name);
     return NextResponse.json({
       status: "ok",
       message: "Migrations applied (or already up to date).",
       subjectsTableExists: tableNames.includes("subjects"),
+      lessonModulesTableExists: tableNames.includes("lesson_modules"),
       ingestTablesFound: tableNames.filter((n) => n.startsWith("ingest_")),
       newColumnsFound: cols.map((r) => `${r.table_name}.${r.column_name}`),
     });
