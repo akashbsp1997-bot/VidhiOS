@@ -15,13 +15,20 @@ const STAGE_LABEL = { teach: "Teach", grasp: "Grasp", remember: "Remember", test
 const FADE_WINDOW = 3;
 const FADE_OPACITIES = [0.55, 0.35, 0.18];
 
-// Same thresholds as the old flat dashboard's difficultyLabel -- even
-// thirds, since app/api/subtopics/route.js's difficultyScore is already a
-// rough blend of two proxies, not a calibrated difficulty measure.
+// Four tiers matching the explicit basics-to-advanced chronology: material a
+// student meets at a lower school class is "Basics" (NCERT class 6-10-ish,
+// see lib/adaptive/unlocks.js's NCERT_LEVEL_SCORE), material needing the
+// senior-secondary NCERT ceiling (class 11-12) to explain is "Beginner",
+// government/official sources push a subtopic to "Advanced", and
+// current-affairs/external-vendor sources -- material with no single stable
+// text, requiring independent synthesis -- push it to "Advanced Pro". Even
+// quartiles across the blended (source + pyq-marks) 0-1 score, same
+// "rough proxy, not a calibrated measure" caveat as this always had.
 function difficultyLabel(score) {
-  if (score < 0.35) return "Foundational";
-  if (score < 0.65) return "Intermediate";
-  return "Advanced";
+  if (score < 0.25) return "Basics";
+  if (score < 0.5) return "Beginner";
+  if (score < 0.75) return "Advanced";
+  return "Advanced Pro";
 }
 
 // A single-paper subject's (GS papers, Essay, both Prelims papers) tile

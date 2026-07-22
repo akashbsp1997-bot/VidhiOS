@@ -95,6 +95,15 @@ export const sources = pgTable("sources", {
   url: text("url").notNull(),
   sourceType: text("source_type").notNull(), // 'bare_act' | 'judgment' | 'treaty' | 'commission_report' | 'gazette' | 'press_release' | 'other'
   sourceTier: text("source_tier"), // 'ncert' | 'official' | 'newspaper' | 'private_vendor'
+  // Only meaningful when sourceTier = 'ncert' -- which school class range a
+  // concept is taught at is itself a real basics-to-advanced signal (see
+  // lib/adaptive/unlocks.js's sourceScore), distinct from the coarser
+  // ncert-vs-not distinction sourceTier alone gives. 'foundational' = class
+  // 6-8, 'middle' = class 9-10, 'senior' = class 11-12. Null for every
+  // non-NCERT source, and for an NCERT source not yet tagged (falls back to
+  // 'senior' in scoring -- see drizzle/0011's backfill for why that's the
+  // right default for every NCERT source in this app as of 2026-07-22).
+  ncertLevel: text("ncert_level"),
   official: boolean("official").notNull().default(true),
   addedAt: timestamp("added_at").notNull().defaultNow(),
   // Set only for rows created via the ingestion pipeline (app/api/ingest/*) --

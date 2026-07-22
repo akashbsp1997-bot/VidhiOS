@@ -28,7 +28,9 @@ export async function GET(request) {
       .select({ subtopicId: sources.subtopicId, count: sql`count(*)`.mapWith(Number) })
       .from(sources)
       .groupBy(sources.subtopicId);
-    const sourceRows = await db.select({ subtopicId: sources.subtopicId, sourceTier: sources.sourceTier }).from(sources);
+    const sourceRows = await db
+      .select({ subtopicId: sources.subtopicId, sourceTier: sources.sourceTier, ncertLevel: sources.ncertLevel })
+      .from(sources);
     const allPyqs = await db.select({ topics: pyqs.topics, marks: pyqs.marks }).from(pyqs);
     const allSubjects = await db.select().from(subjects);
 
@@ -36,11 +38,9 @@ export async function GET(request) {
     const sourceCountBySubtopic = Object.fromEntries(sourceCounts.map((s) => [s.subtopicId, s.count]));
     const subjectById = Object.fromEntries(allSubjects.map((s) => [s.id, s]));
 
-    const sourceTierBySubtopic = {}; // subtopicId -> { ncert, total }
+    const sourcesBySubtopic = {}; // subtopicId -> [{sourceTier, ncertLevel}]
     for (const row of sourceRows) {
-      const bucket = (sourceTierBySubtopic[row.subtopicId] ??= { ncert: 0, total: 0 });
-      bucket.total += 1;
-      if (row.sourceTier === "ncert") bucket.ncert += 1;
+      (sourcesBySubtopic[row.subtopicId] ??= []).push({ sourceTier: row.sourceTier, ncertLevel: row.ncertLevel });
     }
 
     const pyqMarksBySubtopic = {}; // subtopicId -> marks[] -- one pyq can tag multiple subtopics via topics[]
@@ -63,7 +63,7 @@ export async function GET(request) {
       attemptsCount: masteryBySubtopic[s.id]?.attemptsCount ?? 0,
       stage: masteryBySubtopic[s.id]?.stage ?? "teach",
       sourceCount: sourceCountBySubtopic[s.id] ?? 0,
-      difficultyScore: computeDifficultyScore(sourceTierBySubtopic[s.id], pyqMarksBySubtopic[s.id]),
+      difficultyScore: computeDifficultyScore(sourcesBySubtopic[s.id], pyqMarksBySubtopic[s.id]),
     }));
 
     // Study-path order: paper first, then basics -> advanced within it,
