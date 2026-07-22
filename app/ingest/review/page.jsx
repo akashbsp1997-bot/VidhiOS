@@ -36,6 +36,18 @@ const FIELD_SETS = {
   ],
 };
 
+// Only relevant to an ncert_chapter upload -- the AI's suggested book/
+// chapter/subject/class, verified by the operator here before commit like
+// every other suggested field (see lib/ingest/config.js's
+// buildNcertSourceSystem). ncertClass directly drives
+// lib/adaptive/unlocks.js's basics-to-advanced scoring once approved.
+const NCERT_SOURCE_FIELDS = [
+  { key: "bookName", label: "NCERT book name", type: "text" },
+  { key: "chapterName", label: "Chapter name", type: "text" },
+  { key: "ncertSubject", label: "NCERT subject (e.g. Political Science, History)", type: "text" },
+  { key: "ncertClass", label: "Class (6-12)", type: "number" },
+];
+
 function parseFieldValue(type, raw) {
   if (type === "number") return raw === "" ? null : Number(raw);
   if (type === "list") return raw.split(",").map((s) => s.trim()).filter(Boolean);
@@ -136,7 +148,10 @@ export default function IngestReviewPage() {
 
       {items.map((item) => {
         const data = currentData(item);
-        const fields = FIELD_SETS[item.itemType] || [];
+        const fields = [
+          ...(FIELD_SETS[item.itemType] || []),
+          ...(item.itemType === "source" && item.upload.docType === "ncert_chapter" ? NCERT_SOURCE_FIELDS : []),
+        ];
         return (
           <div className="card" key={item.id} style={{ marginBottom: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 8 }}>

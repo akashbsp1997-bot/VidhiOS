@@ -29,7 +29,7 @@ export async function GET(request) {
       .from(sources)
       .groupBy(sources.subtopicId);
     const sourceRows = await db
-      .select({ subtopicId: sources.subtopicId, sourceTier: sources.sourceTier, ncertLevel: sources.ncertLevel })
+      .select({ subtopicId: sources.subtopicId, sourceTier: sources.sourceTier, ncertLevel: sources.ncertLevel, ncertClass: sources.ncertClass })
       .from(sources);
     const allPyqs = await db.select({ topics: pyqs.topics, marks: pyqs.marks }).from(pyqs);
     const allSubjects = await db.select().from(subjects);
@@ -38,9 +38,9 @@ export async function GET(request) {
     const sourceCountBySubtopic = Object.fromEntries(sourceCounts.map((s) => [s.subtopicId, s.count]));
     const subjectById = Object.fromEntries(allSubjects.map((s) => [s.id, s]));
 
-    const sourcesBySubtopic = {}; // subtopicId -> [{sourceTier, ncertLevel}]
+    const sourcesBySubtopic = {}; // subtopicId -> [{sourceTier, ncertLevel, ncertClass}]
     for (const row of sourceRows) {
-      (sourcesBySubtopic[row.subtopicId] ??= []).push({ sourceTier: row.sourceTier, ncertLevel: row.ncertLevel });
+      (sourcesBySubtopic[row.subtopicId] ??= []).push({ sourceTier: row.sourceTier, ncertLevel: row.ncertLevel, ncertClass: row.ncertClass });
     }
 
     const pyqMarksBySubtopic = {}; // subtopicId -> marks[] -- one pyq can tag multiple subtopics via topics[]
