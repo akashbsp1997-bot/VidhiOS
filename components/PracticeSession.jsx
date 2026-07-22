@@ -11,11 +11,21 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
   const [masteryAfter, setMasteryAfter] = useState(null);
   const [loading, setLoading] = useState(true);
   const [grading, setGrading] = useState(false);
-  const [error, setError] = useState(null);
+  // Separate states, deliberately -- a "picking a question" failure (no
+  // question loaded yet) and a "grading this answer" failure (question and
+  // the student's already-typed answer both still exist) are different
+  // situations. A single shared error used to collapse both into the same
+  // full-panel error view whose only action ("Try again") fetched a
+  // DIFFERENT question via loadNext -- so a transient grading hiccup (e.g.
+  // the model provider returning a temporary 503 "high demand") silently
+  // discarded the answer just written, with no way to just retry grading it.
+  const [loadError, setLoadError] = useState(null);
+  const [gradingError, setGradingError] = useState(null);
 
   const loadNext = useCallback(() => {
     setLoading(true);
-    setError(null);
+    setLoadError(null);
+    setGradingError(null);
     setFeedback(null);
     setAnswerText("");
     const qs = forcedSubtopicId ? `?subtopicId=${encodeURIComponent(forcedSubtopicId)}` : "";
@@ -23,13 +33,13 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
       .then((r) => r.json())
       .then((data) => {
         if (data.error === "locked") {
-          setError(
+          setLoadError(
             `This subtopic is locked — reach ${data.requiredMasteryPct}% mastery on ${data.requiredSubtopicText} first (currently ${data.currentMasteryPct}%).`
           );
-        } else if (data.error) setError(data.error);
+        } else if (data.error) setLoadError(data.error);
         else setQuestion(data);
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => setLoadError(e.message))
       .finally(() => setLoading(false));
   }, [forcedSubtopicId]);
 
@@ -40,7 +50,7 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
   function submitAnswer() {
     if (!question || !answerText.trim()) return;
     setGrading(true);
-    setError(null);
+    setGradingError(null);
     fetch("/api/attempt", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -56,21 +66,21 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
     })
       .then((r) => r.json())
       .then((data) => {
-        if (data.error) setError(data.error);
+        if (data.error) setGradingError(data.error);
         else {
           setFeedback(data.feedback);
           setMasteryAfter(data.mastery);
         }
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => setGradingError(e.message))
       .finally(() => setGrading(false));
   }
 
   if (loading) return <div className="loading">Picking your next question…</div>;
-  if (error)
+  if (loadError)
     return (
       <div className="error-box">
-        {error}
+        {loadError}
         <div style={{ marginTop: 8 }}>
           <button className="btn" onClick={loadNext}>
             Try again
@@ -131,9 +141,14 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
               onChange={(e) => setAnswerText(e.target.value)}
               disabled={grading}
             />
+            {gradingError && (
+              <div className="error-box" style={{ marginTop: 10 }}>
+                {gradingError}
+              </div>
+            )}
             <div style={{ marginTop: 12 }}>
               <button className="btn btn-primary" onClick={submitAnswer} disabled={grading || !answerText.trim()}>
-                {grading ? "Grading…" : "Submit answer"}
+                {grading ? "Grading…" : gradingError ? "Retry grading" : "Submit answer"}
               </button>
             </div>
           </>
