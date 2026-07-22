@@ -154,6 +154,7 @@ textarea.answer-box {
 
 .subtopic-row.locked { opacity: 0.55; }
 .locked-pill { display: inline-block; font-family: var(--font-mono); font-size: 10.5px; padding: 2px 7px; border-radius: 999px; background: #f0dfda; color: var(--maroon); }
+.qualifying-pill { display: inline-block; font-family: var(--font-mono); font-size: 9.5px; padding: 1px 6px; border-radius: 999px; background: var(--ivory-2); color: var(--ink-soft); margin-left: 6px; vertical-align: middle; }
 
 .segmented { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .seg { border-radius: 8px; padding: 7px 12px; font-size: 13px; border: 1px solid var(--rule); background: var(--ivory-2); color: var(--ink); }

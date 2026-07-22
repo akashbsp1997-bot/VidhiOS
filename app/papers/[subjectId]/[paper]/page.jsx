@@ -31,17 +31,18 @@ function difficultyLabel(score) {
   return "Advanced Pro";
 }
 
-// A single-paper subject's (GS papers, Essay, both Prelims papers) tile
-// label already IS the full paper name. The two-paper optional subjects
-// (Law, Literature) only carry "Paper I"/"Paper II" as their label, so this
-// prefixes the optional's own name (pulled from the tile's `group`, e.g.
-// "CSE Mains — Optional: Law" -> "Law"). Fully static -- doesn't need the
-// subtopics API response, so the heading is correct even before/without any
-// data loading (the "coming soon" case).
+// A single-paper subject's (GS papers, Essay, both qualifying papers, both
+// Prelims papers) tile label already IS the full paper name. The two-paper
+// optional subjects (Law, Literature) carry "Paper VI/VII: Optional Paper
+// 1/2" as their label -- already says "Optional", so this just prefixes the
+// optional's own name (pulled from the tile's `group`, e.g.
+// "CSE Mains — Merit — Optional: Law" -> "Law") without repeating the word.
+// Fully static -- doesn't need the subtopics API response, so the heading is
+// correct even before/without any data loading (the "coming soon" case).
 function paperHeading(tile) {
   if (!tile) return null;
   const optionalMatch = tile.group.match(/Optional: (.+)$/);
-  return optionalMatch ? `${optionalMatch[1]} Optional — ${tile.label}` : tile.label;
+  return optionalMatch ? `${optionalMatch[1]} — ${tile.label}` : tile.label;
 }
 
 export default function PaperSubtopicsPage({ params }) {

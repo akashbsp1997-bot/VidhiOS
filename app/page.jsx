@@ -87,8 +87,12 @@ export default function PapersIndex() {
                 className={`paper-tile${t.subtopicCount === 0 ? " coming-soon" : ""}`}
                 href={`/papers/${t.subjectId}/${t.paper}`}
               >
-                <div className="paper-tile-label">{t.label}</div>
+                <div className="paper-tile-label">
+                  {t.label}
+                  {t.qualifying && <span className="qualifying-pill">Qualifying</span>}
+                </div>
                 <div className="paper-tile-meta">
+                  {t.marks ? `${t.marks} marks · ` : ""}
                   {t.subtopicCount > 0
                     ? `${t.subtopicCount} subtopic${t.subtopicCount === 1 ? "" : "s"} · ${Math.round((t.avgMasteryScore ?? 0) * 100)}% mastery`
                     : "Coming soon"}
