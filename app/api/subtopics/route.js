@@ -6,12 +6,23 @@ import { subtopics, mastery, sources, subjects, pyqs } from "../../../db/schema.
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { computeDifficultyScore, orderSubtopicsWithinPaper, computeSubtopicLocks } from "../../../lib/adaptive/unlocks.js";
 
-export async function GET() {
+export async function GET(request) {
   const userId = await getSessionUserId();
   if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
+  // Optional (subjectId, paper) filter -- used by the per-paper drill-down
+  // page (app/papers/[subjectId]/[paper]/page.jsx) to get just that paper's
+  // subtopics. Omitted entirely, this route still returns everything (the
+  // old flat-dashboard shape), kept for generality even though nothing in
+  // the UI calls it unfiltered anymore since the papers-index redesign.
+  const { searchParams } = new URL(request.url);
+  const filterSubjectId = searchParams.get("subjectId");
+  const filterPaper = searchParams.get("paper") ? Number(searchParams.get("paper")) : null;
+
   try {
-    const allSubtopics = await db.select().from(subtopics);
+    let allSubtopics = await db.select().from(subtopics);
+    if (filterSubjectId) allSubtopics = allSubtopics.filter((s) => s.subjectId === filterSubjectId);
+    if (filterPaper != null) allSubtopics = allSubtopics.filter((s) => s.paper === filterPaper);
     const allMastery = await db.select().from(mastery).where(eq(mastery.userId, userId));
     const sourceCounts = await db
       .select({ subtopicId: sources.subtopicId, count: sql`count(*)`.mapWith(Number) })

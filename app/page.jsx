@@ -1,45 +1,38 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PAPER_TILES } from "../lib/subjects/papers.js";
 
-const STAGE_LABEL = { teach: "Teach", grasp: "Grasp", remember: "Remember", test: "Test" };
-
-// Buckets app/api/subtopics/route.js's 0-1 difficultyScore into a label a
-// student recognizes at a glance -- thresholds are even thirds, nothing
-// more precise is warranted given the score itself is already a rough
-// blend of two proxies (source-tier composition + PYQ marks), not a
-// calibrated difficulty measure.
-function difficultyLabel(score) {
-  if (score < 0.35) return "Foundational";
-  if (score < 0.65) return "Intermediate";
-  return "Advanced";
-}
-
-// Groups by paper only (not paper+section like this page used to) -- the
-// order within a paper is now a basics-to-advanced study path (see the
-// API route's sort), which would be broken up if subtopics were also
-// bucketed by syllabus section. Section is still shown per-subtopic below,
-// just as inline metadata instead of a group header.
-function groupByPaper(subtopics) {
+// Groups PAPER_TILES' own static `group` field -- server order (this file's
+// static array order) is preserved since JS objects preserve string-key
+// insertion order, so the grid always renders Prelims -> Mains GS -> Essay ->
+// Optionals in the same fixed sequence regardless of API response order.
+function groupTiles(tiles) {
   const groups = {};
-  for (const s of subtopics) {
-    const key = `${s.subjectDisplayName} · Paper ${s.paper}`;
-    groups[key] = groups[key] || [];
-    groups[key].push(s);
+  for (const t of tiles) {
+    groups[t.group] = groups[t.group] || [];
+    groups[t.group].push(t);
   }
   return groups;
 }
 
-export default function Dashboard() {
-  const [subtopics, setSubtopics] = useState(null);
+// This is now the top-level papers index -- the full real UPSC CSE exam
+// structure (see lib/subjects/papers.js), not a flat subtopic list. A tile
+// for a paper with no content yet is still clickable and still shows a
+// "coming soon" page (app/papers/[subjectId]/[paper]/page.jsx) rather than
+// being hidden or disabled -- explicit product choice, so the whole exam
+// structure is visible now even though only Law Optional/GS2 have real
+// content today.
+export default function PapersIndex() {
+  const [tiles, setTiles] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetch("/api/subtopics")
+    fetch("/api/papers")
       .then((r) => r.json())
       .then((data) => {
         if (data.error) setError(data.error);
-        else setSubtopics(data.subtopics);
+        else setTiles(data.tiles);
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -58,20 +51,21 @@ export default function Dashboard() {
     );
   }
 
-  if (!subtopics) return <div className="loading">Loading subtopics…</div>;
+  if (!tiles) return <div className="loading">Loading papers…</div>;
 
-  const overallMastery = subtopics.length
-    ? subtopics.reduce((sum, s) => sum + s.masteryScore, 0) / subtopics.length
+  const withContent = tiles.filter((t) => t.subtopicCount > 0);
+  const overallMastery = withContent.length
+    ? withContent.reduce((sum, t) => sum + (t.avgMasteryScore ?? 0), 0) / withContent.length
     : 0;
-  const groups = groupByPaper(subtopics);
+  const groups = groupTiles(tiles);
 
   return (
     <>
       <h1>Dashboard</h1>
       <p className="lede">
-        {subtopics.length} subtopics · overall mastery {Math.round(overallMastery * 100)}%. Each paper below is
-        ordered as a basics-to-advanced study path; weak, high-yield topics are still served most often in
-        adaptive practice regardless of this order — nothing is ever fully benched.
+        Every UPSC CSE paper, in one place — {withContent.length} of {tiles.length} have content loaded so far
+        (overall mastery {Math.round(overallMastery * 100)}%); the rest are marked "coming soon" until content is
+        added. Click a paper to see its subtopics.
       </p>
 
       <div className="card">
@@ -79,49 +73,29 @@ export default function Dashboard() {
           Start adaptive practice →
         </a>
         <span style={{ marginLeft: 12, fontSize: 13, color: "var(--ink-soft)" }}>
-          one question at a time, mixed across every subtopic by current weakness
+          one question at a time, across every paper with content, mixed by current weakness
         </span>
       </div>
 
-      {Object.entries(groups).map(([paper, items]) => (
-        <div className="card" key={paper}>
-          <h2>{paper}</h2>
-          {items.map((s) => (
-            <div className={`subtopic-row${s.locked ? " locked" : ""}`} key={s.id}>
-              <span className="subtopic-code">{s.id}</span>
-              <span className="subtopic-text">
-                {s.locked ? (
-                  <span>{s.topicText}</span>
-                ) : (
-                  <a href={`/learn/${s.id}`}>{s.topicText}</a>
-                )}
-                <div className="subtopic-meta">
-                  {s.locked ? (
-                    <span className="locked-pill">
-                      Locked — reach {s.requiredMasteryPct}% mastery on {s.requiredSubtopicText} first (
-                      {s.currentMasteryPct}%/{s.requiredMasteryPct}%)
-                    </span>
-                  ) : (
-                    <>
-                      {s.section} · {s.pyqFrequency} PYQ appearance{s.pyqFrequency === 1 ? "" : "s"} · {s.attemptsCount}{" "}
-                      attempted ·{" "}
-                      <a href={`/sources/${s.id}`}>
-                        {s.sourceCount} source{s.sourceCount === 1 ? "" : "s"}
-                      </a>
-                    </>
-                  )}
+      {Object.entries(groups).map(([group, items]) => (
+        <div className="card" key={group}>
+          <h2>{group}</h2>
+          <div className="paper-tile-grid">
+            {items.map((t) => (
+              <a
+                key={`${t.subjectId}-${t.paper}`}
+                className={`paper-tile${t.subtopicCount === 0 ? " coming-soon" : ""}`}
+                href={`/papers/${t.subjectId}/${t.paper}`}
+              >
+                <div className="paper-tile-label">{t.label}</div>
+                <div className="paper-tile-meta">
+                  {t.subtopicCount > 0
+                    ? `${t.subtopicCount} subtopic${t.subtopicCount === 1 ? "" : "s"} · ${Math.round((t.avgMasteryScore ?? 0) * 100)}% mastery`
+                    : "Coming soon"}
                 </div>
-              </span>
-              <span className="tier-pill" style={{ fontSize: 11 }}>
-                {difficultyLabel(s.difficultyScore)}
-              </span>
-              <span className={`stage-pill stage-${s.stage}`}>{STAGE_LABEL[s.stage]}</span>
-              <span className={`tier-pill${s.currentTier === 3 ? " t3" : ""}`}>tier {s.currentTier}</span>
-              <span className="bar" title={`${Math.round(s.masteryScore * 100)}% mastery`}>
-                <span style={{ width: `${Math.round(s.masteryScore * 100)}%` }} />
-              </span>
-            </div>
-          ))}
+              </a>
+            ))}
+          </div>
         </div>
       ))}
     </>
