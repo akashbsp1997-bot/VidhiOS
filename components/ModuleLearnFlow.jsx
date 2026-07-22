@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ModuleTestPanel from "./ModuleTestPanel.jsx";
+import { isStageUnlocked } from "../lib/adaptive/unlocks.js";
 
 const MAX_STAGE_FETCH_ITERATIONS = 5;
 
@@ -86,6 +87,12 @@ const MODULE_STAGES = [
   { key: "test", label: "Test" },
 ];
 
+function lockReasonLabel(reason) {
+  if (reason === "previous_test_not_attempted") return "Attempt the previous module's Test first";
+  if (reason === "mastery_below_threshold") return "Raise this subtopic's mastery to unlock";
+  return "Locked";
+}
+
 // The new per-module design: a subtopic is a SEQUENCE of modules, and each
 // module runs its own independent Teach -> Grasp -> Remember -> Test cycle
 // before advancing to the next one, rather than one cycle covering the
@@ -97,24 +104,29 @@ const MODULE_STAGES = [
 // key={subtopicId}, so a subtopic change always gives a fresh instance --
 // the useState(initialData) seeding below only needs to handle first mount,
 // never a prop change on an existing instance.
-export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtopicText, initialData }) {
+export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtopicText, initialData, initialModuleIndex = 0 }) {
   const [modules, setModules] = useState(initialData.modules || []);
-  const [moduleIndex, setModuleIndex] = useState(0);
+  const [moduleIndex, setModuleIndex] = useState(initialModuleIndex);
   const [moduleContent, setModuleContent] = useState(initialData);
   const [stage, setStage] = useState("teach");
   const [panelIndex, setPanelIndex] = useState(0);
   const [loadingStage, setLoadingStage] = useState(null);
   const [error, setError] = useState(null);
   const [allModulesComplete, setAllModulesComplete] = useState(Boolean(initialData.allModulesComplete));
+  // Sequential-completion high-water mark for the CURRENT module (see
+  // lib/adaptive/unlocks.js's STAGE_ORDER) -- the server includes this in
+  // every /api/module-lesson response; only a stage's own Continue button
+  // (action:"advance") ever moves it forward, a tab click never does.
+  const [unlockedStage, setUnlockedStage] = useState(initialData.unlockedStage || "teach");
 
   // Picks up where the dispatcher's own fetch left off, if it wasn't
   // immediately ready (e.g. it only just ran the module-planning phase, or
-  // module 1's Teach phase, and there's still more to generate before
-  // Teach can render). Runs once per mount -- see the key={subtopicId} note
-  // above for why no subtopicId-change handling is needed here.
+  // initialModuleIndex's Teach phase, and there's still more to generate
+  // before Teach can render). Runs once per mount -- see the key={subtopicId}
+  // note above for why no subtopicId-change handling is needed here.
   useEffect(() => {
     if (!initialData.ready && !initialData.allModulesComplete && !initialData.error) {
-      ensureModuleStageReady(0, "teach");
+      ensureModuleStageReady(initialModuleIndex, "teach");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -130,6 +142,7 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
           return;
         }
         if (data.modules) setModules(data.modules);
+        if (typeof data.unlockedStage === "string") setUnlockedStage(data.unlockedStage);
         if (data.allModulesComplete) {
           setAllModulesComplete(true);
           return;
@@ -145,18 +158,28 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
     }
   }
 
-  function postModuleStage(idx, stageKey) {
+  // action:"advance" (a stage's own Continue button) is the only thing that
+  // moves the highestStage high-water mark forward; action:"view" (a tab
+  // click) just records where the student is currently looking, same as
+  // before this feature existed.
+  function postModuleStage(idx, stageKey, action = "view") {
     fetch("/api/module-lesson", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ subtopicId, moduleIndex: idx, stage: stageKey }),
-    }).catch(() => {});
+      body: JSON.stringify({ subtopicId, moduleIndex: idx, stage: stageKey, action }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (typeof data.unlockedStage === "string") setUnlockedStage(data.unlockedStage);
+      })
+      .catch(() => {});
   }
 
-  function goToModuleStage(idx, stageKey) {
+  function goToModuleStage(idx, stageKey, action = "view") {
+    if (action !== "advance" && !isStageUnlocked(stageKey, unlockedStage)) return;
     setStage(stageKey);
     setPanelIndex(0);
-    postModuleStage(idx, stageKey);
+    postModuleStage(idx, stageKey, action);
     if (stageKey !== "test") ensureModuleStageReady(idx, stageKey);
   }
 
@@ -165,9 +188,11 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
       setAllModulesComplete(true);
       return;
     }
+    if (modules[idx]?.locked) return;
     setModuleIndex(idx);
     setStage("teach");
     setPanelIndex(0);
+    setUnlockedStage("teach");
     postModuleStage(idx, "teach");
     ensureModuleStageReady(idx, "teach");
   }
@@ -249,10 +274,25 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
             key: "mnemonic",
             label: "Mnemonic",
             node: (
-              <div className="mnemonic-card">
-                <div className="mnemonic-device">{moduleContent.mnemonic.device}</div>
-                <div className="mnemonic-explanation">{moduleContent.mnemonic.explanation}</div>
-              </div>
+              <>
+                <div className="mnemonic-card">
+                  <div className="mnemonic-device">{moduleContent.mnemonic.device}</div>
+                  <div className="mnemonic-explanation">{moduleContent.mnemonic.explanation}</div>
+                </div>
+                {moduleContent.visualImageDataUri ? (
+                  <img
+                    src={moduleContent.visualImageDataUri}
+                    alt={`Concept diagram for ${currentModule?.title || "this module"}`}
+                    className="visual-diagram"
+                  />
+                ) : (
+                  loadingStage === "remember" && (
+                    <p className="section-hint" style={{ marginTop: 10 }}>
+                      {"Generating diagram…"}
+                    </p>
+                  )
+                )}
+              </>
             ),
           },
         ]
@@ -262,24 +302,51 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
     <>
       <h1>{subjectDisplayName ? `${subjectDisplayName} · ${subtopicId}` : subtopicId}</h1>
       <p className="lede">{subtopicText}</p>
+      <p style={{ fontSize: 12.5, marginBottom: 12 }}>
+        <a href={`/sources/${encodeURIComponent(subtopicId)}`}>Browse grounding sources (NCERT, govt, current affairs) →</a>
+      </p>
 
       <div className="segmented" style={{ marginBottom: 8 }}>
         {modules.map((m, i) => (
-          <button key={m.id} className={`seg${i === moduleIndex ? " active" : ""}`} onClick={() => goToModule(i)}>
+          <button
+            key={m.id}
+            className={`seg${i === moduleIndex ? " active" : ""}${m.locked ? " locked" : ""}`}
+            onClick={() => goToModule(i)}
+            disabled={m.locked}
+            title={m.locked ? lockReasonLabel(m.lockReason) : undefined}
+          >
+            {m.locked ? "🔒 " : ""}
             {i + 1}. {m.title}
           </button>
         ))}
       </div>
       <p className="section-hint" style={{ marginBottom: 12 }}>
         Module {moduleIndex + 1} of {modules.length} — {currentModule?.scopeNote}
+        {currentModule?.pyqId && (
+          <>
+            {" "}
+            · <strong>Grounded in a real PYQ</strong>
+            {currentModule.pyqYear ? ` (${currentModule.pyqYear}${currentModule.pyqMarks ? `, ${currentModule.pyqMarks} marks` : ""})` : ""}
+          </>
+        )}
       </p>
 
       <div className="segmented">
-        {MODULE_STAGES.map((s) => (
-          <button key={s.key} className={`seg${stage === s.key ? " active" : ""}`} onClick={() => goToModuleStage(moduleIndex, s.key)}>
-            {s.label}
-          </button>
-        ))}
+        {MODULE_STAGES.map((s) => {
+          const locked = !isStageUnlocked(s.key, unlockedStage);
+          return (
+            <button
+              key={s.key}
+              className={`seg${stage === s.key ? " active" : ""}${locked ? " locked" : ""}`}
+              onClick={() => goToModuleStage(moduleIndex, s.key)}
+              disabled={locked}
+              title={locked ? "Finish the previous stage first" : undefined}
+            >
+              {locked ? "🔒 " : ""}
+              {s.label}
+            </button>
+          );
+        })}
       </div>
 
       {stage === "teach" && (
@@ -290,7 +357,7 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
               modules={teachPanels}
               panelIndex={panelIndex}
               setPanelIndex={setPanelIndex}
-              onComplete={() => goToModuleStage(moduleIndex, "grasp")}
+              onComplete={() => goToModuleStage(moduleIndex, "grasp", "advance")}
               completeLabel="Continue to Grasp →"
             />
           ) : (
@@ -309,13 +376,13 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
               modules={graspPanels}
               panelIndex={panelIndex}
               setPanelIndex={setPanelIndex}
-              onComplete={() => goToModuleStage(moduleIndex, "remember")}
+              onComplete={() => goToModuleStage(moduleIndex, "remember", "advance")}
               completeLabel="Continue to Remember →"
             />
           ) : (
             <EmptyStageFallback
               note="No practice material generated for this module."
-              onComplete={() => goToModuleStage(moduleIndex, "remember")}
+              onComplete={() => goToModuleStage(moduleIndex, "remember", "advance")}
               completeLabel="Continue to Remember →"
             />
           )}
@@ -332,13 +399,13 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
               modules={rememberPanels}
               panelIndex={panelIndex}
               setPanelIndex={setPanelIndex}
-              onComplete={() => goToModuleStage(moduleIndex, "test")}
+              onComplete={() => goToModuleStage(moduleIndex, "test", "advance")}
               completeLabel="Start Test →"
             />
           ) : (
             <EmptyStageFallback
               note="No mnemonic generated for this module."
-              onComplete={() => goToModuleStage(moduleIndex, "test")}
+              onComplete={() => goToModuleStage(moduleIndex, "test", "advance")}
               completeLabel="Start Test →"
             />
           )}

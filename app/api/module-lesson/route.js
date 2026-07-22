@@ -14,36 +14,108 @@
 export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
-import { and, eq, asc } from "drizzle-orm";
+import { and, eq, asc, sql, inArray } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
-import { subtopics, sources, lessons, lessonModules, mastery, subjects } from "../../../db/schema.js";
-import { generateModulePlan, generateModuleTeach, generateModulePractice } from "../../../lib/ai/generateModules.js";
+import { subtopics, sources, lessons, lessonModules, mastery, subjects, pyqs } from "../../../db/schema.js";
+import { generateModulePlan, generateModulePlanFromPyqs, generateModuleTeach, generateModulePractice, generateModuleImage } from "../../../lib/ai/generateModules.js";
 import { casesSeed } from "../../../db/seed/cases.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
+import { loadPaperLockMap } from "../../../lib/adaptive/lockState.js";
+import { computeModuleLocks, isStageUnlocked, validateStageAdvance } from "../../../lib/adaptive/unlocks.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
 
-// Grasp and Remember are both satisfied the instant the practice phase
-// completes (no separate image phase at module granularity, unlike
-// /api/lesson's three-phase STAGE_REQUIRES) -- so this is a 2-phase state
-// machine, not 3.
+// A subtopic only goes PYQ-anchored (see selectPyqCandidates below) once it
+// has at least this many real PYQs -- with a threshold of 1, a subtopic
+// with exactly one real PYQ would get exactly one module for its entire
+// Teach->Grasp->Remember->Test cycle, a hard regression from the 2-5 module
+// range free decomposition already guarantees. Verified against real seed
+// data: this threshold routes 65% of law-optional subtopics through PYQ
+// anchoring (2-5 modules each) and leaves the rest (0 or 1 PYQ) on
+// unchanged free-decomposition behavior, rather than collapsing 26% of the
+// syllabus to single-module subtopics under a naive ">=1" threshold.
+const MIN_PYQS_FOR_ANCHORING = 2;
+const MAX_MODULES = 5;
+const MAX_PYQS_PER_YEAR = 2;
+
+// Picks up to MAX_MODULES real PYQs to anchor modules to, favoring recency
+// (what UPSC currently emphasizes) as the relevance signal, capped per year
+// so a subtopic with many PYQs concentrated in a couple of recent sittings
+// (some gs2 subtopics have 12-24 real PYQs) still gets some spread rather
+// than 5 modules from the same one or two exams. Re-sorted by marks
+// ascending afterward (a defensible foundational->advanced proxy) so the
+// array order handed to the AI -- and therefore each module's orderIndex --
+// already reads basics-first, without needing the AI to reorder (which
+// would break positional pyqId matching).
+function selectPyqCandidates(pyqCandidates) {
+  const byYearDesc = [...pyqCandidates].sort((a, b) => b.year - a.year);
+  const selected = [];
+  const perYearCount = {};
+  for (const q of byYearDesc) {
+    if (selected.length >= MAX_MODULES) break;
+    const count = perYearCount[q.year] || 0;
+    if (count >= MAX_PYQS_PER_YEAR) continue;
+    selected.push(q);
+    perYearCount[q.year] = count + 1;
+  }
+  return selected.sort((a, b) => a.marks - b.marks);
+}
+
+// Enriches plain lesson_modules rows with their anchor PYQ's year/marks (for
+// the "Grounded in a real PYQ" UI badge) via one follow-up lookup, rather
+// than denormalizing that data onto lesson_modules itself -- matches how
+// this codebase handles other FK relationships (e.g. sources.storageUploadId)
+// by referencing and re-fetching instead of duplicating.
+// `moduleLocks` (optional Map from computeModuleLocks) merges locked/lockReason
+// into each entry so the client never needs a separate lock-fetching round
+// trip -- omit it only for the allModulesComplete response, where lock state
+// is moot.
+async function buildModulesSummary(moduleRows, moduleLocks) {
+  const pyqIds = moduleRows.map((m) => m.pyqId).filter(Boolean);
+  const anchorRows = pyqIds.length ? await db.select().from(pyqs).where(inArray(pyqs.id, pyqIds)) : [];
+  const anchorById = Object.fromEntries(anchorRows.map((p) => [p.id, p]));
+  return moduleRows.map((m) => {
+    const anchor = m.pyqId ? anchorById[m.pyqId] : null;
+    const lock = moduleLocks?.get(m.id);
+    return {
+      id: m.id,
+      orderIndex: m.orderIndex,
+      title: m.title,
+      scopeNote: m.scopeNote,
+      pyqId: m.pyqId ?? null,
+      pyqYear: anchor?.year ?? null,
+      pyqMarks: anchor?.marks ?? null,
+      locked: lock?.locked ?? false,
+      lockReason: lock?.reason ?? null,
+    };
+  });
+}
+
+// Grasp is satisfied the instant the practice phase completes; Remember
+// additionally needs the image phase -- same three-phase asymmetry as
+// /api/lesson's STAGE_REQUIRES (Grasp doesn't need the diagram, Remember
+// does).
 const STAGE_REQUIRES = {
   teach: ["teach"],
   grasp: ["teach", "practice"],
-  remember: ["teach", "practice"],
+  remember: ["teach", "practice", "image"],
 };
 
 function nextMissingPhase(row, requiredPhases, stage, force) {
   for (const phase of requiredPhases) {
     if (phase === "teach" && (!row?.generatedAt || (force && stage === "teach"))) return "teach";
     if (phase === "practice" && (!row?.practiceGeneratedAt || (force && stage === "grasp"))) return "practice";
+    if (phase === "image" && (!row?.visualImageDataUri || (force && stage === "remember"))) return "image";
   }
   return null;
 }
 
 export async function GET(request) {
+  const userId = await getSessionUserId();
+  if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const subtopicId = searchParams.get("subtopicId");
   const moduleIndex = Number(searchParams.get("moduleIndex") ?? 0);
@@ -62,9 +134,23 @@ export async function GET(request) {
     const subtopicRow = subtopicRows[0];
     if (!subtopicRow) return NextResponse.json({ error: `Unknown subtopic: ${subtopicId}` }, { status: 404 });
 
+    const lockMap = await loadPaperLockMap(userId, subtopicRow.subjectId, subtopicRow.paper);
+    const subtopicLockInfo = lockMap.get(subtopicId);
+    if (subtopicLockInfo?.locked) {
+      return NextResponse.json({ error: "locked", ...subtopicLockInfo }, { status: 403 });
+    }
+
     const subjectRows = await db.select().from(subjects).where(eq(subjects.id, subtopicRow.subjectId));
     const subjectDisplayName = subjectRows[0]?.displayName ?? subtopicRow.subjectId;
     const subjectConfig = getSubjectConfig(subtopicRow.subjectId);
+
+    const masteryRows = await db
+      .select()
+      .from(mastery)
+      .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
+    const masteryRow = masteryRows[0];
+    const subtopicMasteryScore = masteryRow?.masteryScore ?? 0;
+    const moduleProgress = masteryRow?.moduleProgress ?? {};
 
     const modules = await db
       .select()
@@ -81,44 +167,70 @@ export async function GET(request) {
         }
       }
 
-      const srcRows = await db.select().from(sources).where(eq(sources.subtopicId, subtopicId));
-      const sourceExcerpts = sortByTierPriority(srcRows.filter((s) => s.extractedText))
-        .map((s) => s.extractedText)
-        .slice(0, 2);
-      const caseAnchors = casesSeed
-        .filter((c) => c.topics.includes(subtopicId))
-        .map((c) => ({ case: c.case, point: c.point }));
+      const pyqCandidates = selectPyqCandidates(
+        await db.select().from(pyqs).where(sql`${subtopicId} = ANY(${pyqs.topics})`)
+      );
 
-      const planned = await generateModulePlan({ subtopicText: subtopicRow.topicText, sourceExcerpts, caseAnchors, subjectConfig });
+      let planned;
+      if (pyqCandidates.length >= MIN_PYQS_FOR_ANCHORING) {
+        planned = await generateModulePlanFromPyqs({ subtopicText: subtopicRow.topicText, pyqCandidates, subjectConfig });
+      } else {
+        const srcRows = await db.select().from(sources).where(eq(sources.subtopicId, subtopicId));
+        const sourceExcerpts = sortByTierPriority(srcRows.filter((s) => s.extractedText))
+          .map((s) => s.extractedText)
+          .slice(0, 2);
+        const caseAnchors = casesSeed
+          .filter((c) => c.topics.includes(subtopicId))
+          .map((c) => ({ case: c.case, point: c.point }));
+
+        const freeModules = await generateModulePlan({ subtopicText: subtopicRow.topicText, sourceExcerpts, caseAnchors, subjectConfig });
+        planned = freeModules.map((m) => ({ ...m, pyqId: null }));
+      }
 
       const inserted = await db
         .insert(lessonModules)
-        .values(planned.map((m, i) => ({ subtopicId, orderIndex: i, title: m.title, scopeNote: m.scopeNote })))
+        .values(planned.map((m, i) => ({ subtopicId, orderIndex: i, title: m.title, scopeNote: m.scopeNote, pyqId: m.pyqId })))
         .returning();
 
+      // computeModuleLocks relies on array order matching orderIndex order --
+      // RETURNING typically preserves multi-row VALUES order in Postgres, but
+      // this sort makes that assumption explicit rather than relied-upon.
+      const insertedOrdered = [...inserted].sort((a, b) => a.orderIndex - b.orderIndex);
+      const freshLocks = computeModuleLocks(insertedOrdered, moduleProgress, subtopicMasteryScore);
       return NextResponse.json({
         subtopicId,
         subtopicText: subtopicRow.topicText,
         subjectDisplayName,
-        modules: inserted.map((m) => ({ id: m.id, orderIndex: m.orderIndex, title: m.title, scopeNote: m.scopeNote })),
+        modules: await buildModulesSummary(insertedOrdered, freshLocks),
         ready: false,
         nextPhase: "module-teach",
       });
     }
+
+    const moduleLocks = computeModuleLocks(modules, moduleProgress, subtopicMasteryScore);
 
     if (moduleIndex >= modules.length) {
       return NextResponse.json({
         subtopicId,
         subtopicText: subtopicRow.topicText,
         subjectDisplayName,
-        modules: modules.map((m) => ({ id: m.id, orderIndex: m.orderIndex, title: m.title, scopeNote: m.scopeNote })),
+        modules: await buildModulesSummary(modules, moduleLocks),
         allModulesComplete: true,
       });
     }
 
     const row = modules[moduleIndex];
+    if (moduleLocks.get(row.id)?.locked) {
+      return NextResponse.json({ error: "module_locked", ...moduleLocks.get(row.id) }, { status: 403 });
+    }
+
+    const unlockedStage = moduleProgress[String(row.id)]?.highestStage ?? "teach";
+    if (!isStageUnlocked(stage, unlockedStage)) {
+      return NextResponse.json({ error: "stage_locked", requiredStage: unlockedStage }, { status: 403 });
+    }
+
     const phase = nextMissingPhase(row, STAGE_REQUIRES[stage] ?? [], stage, force);
-    const modulesSummary = modules.map((m) => ({ id: m.id, orderIndex: m.orderIndex, title: m.title, scopeNote: m.scopeNote }));
+    const modulesSummary = await buildModulesSummary(modules, moduleLocks);
 
     if (phase === null) {
       return NextResponse.json({
@@ -127,10 +239,21 @@ export async function GET(request) {
         subjectDisplayName,
         modules: modulesSummary,
         moduleIndex,
+        unlockedStage,
         ...row,
         ready: true,
         cached: true,
       });
+    }
+
+    // Only set for a PYQ-anchored module -- grounds Teach/Practice content
+    // in the real question's exact text (see lib/ai/generateModules.js's
+    // anti-leak instructions for why Practice's use of this is a hard
+    // requirement, not just flavor).
+    let pyqQuestionText;
+    if (row.pyqId) {
+      const anchorRows = await db.select().from(pyqs).where(eq(pyqs.id, row.pyqId));
+      pyqQuestionText = anchorRows[0]?.questionText;
     }
 
     if (phase === "teach") {
@@ -138,6 +261,7 @@ export async function GET(request) {
         subtopicText: subtopicRow.topicText,
         moduleTitle: row.title,
         moduleScope: row.scopeNote,
+        pyqQuestionText,
         subjectConfig,
       });
 
@@ -153,24 +277,53 @@ export async function GET(request) {
         subjectDisplayName,
         modules: modulesSummary,
         moduleIndex,
+        unlockedStage,
         ...saved,
         ready: false,
         nextPhase: "practice",
       });
     }
 
-    // phase === "practice"
-    const practice = await generateModulePractice({
-      subtopicText: subtopicRow.topicText,
-      moduleTitle: row.title,
-      moduleScope: row.scopeNote,
-      teachContent: row.teachContent,
-      subjectConfig,
-    });
+    if (phase === "practice") {
+      const practice = await generateModulePractice({
+        subtopicText: subtopicRow.topicText,
+        moduleTitle: row.title,
+        moduleScope: row.scopeNote,
+        teachContent: row.teachContent,
+        pyqQuestionText,
+        subjectConfig,
+      });
+
+      const [saved] = await db
+        .update(lessonModules)
+        .set({ ...practice, practiceGeneratedAt: new Date() })
+        .where(eq(lessonModules.id, row.id))
+        .returning();
+
+      // Grasp is fully satisfied here; Remember still needs the image phase,
+      // so only Grasp's own request reports ready:true -- a Remember request
+      // gets ready:false + nextPhase:"image" and the client's poll loop
+      // continues, exactly like /api/lesson's practice-phase branch.
+      const ready = stage !== "remember";
+      return NextResponse.json({
+        subtopicId,
+        subtopicText: subtopicRow.topicText,
+        subjectDisplayName,
+        modules: modulesSummary,
+        moduleIndex,
+        unlockedStage,
+        ...saved,
+        ready,
+        nextPhase: ready ? null : "image",
+      });
+    }
+
+    // phase === "image"
+    const visualImageDataUri = await generateModuleImage({ moduleTitle: row.title, keyPoints: row.keyPoints });
 
     const [saved] = await db
       .update(lessonModules)
-      .set({ ...practice, practiceGeneratedAt: new Date() })
+      .set({ visualImageDataUri })
       .where(eq(lessonModules.id, row.id))
       .returning();
 
@@ -180,6 +333,7 @@ export async function GET(request) {
       subjectDisplayName,
       modules: modulesSummary,
       moduleIndex,
+      unlockedStage,
       ...saved,
       ready: true,
       nextPhase: null,
@@ -192,31 +346,57 @@ export async function GET(request) {
 
 // Mirrors /api/lesson's POST exactly (mastery.stage bookkeeping), extended
 // with currentModuleIndex so re-entering a subtopic resumes on the right
-// module.
+// module. `action` distinguishes a plain tab-click bookkeeping POST ("view",
+// the default -- today's exact behavior, no unlock change) from a stage's
+// own Continue button ("advance"), which is what actually raises
+// moduleProgress[moduleId].highestStage -- the high-water mark
+// lib/adaptive/unlocks.js's isStageUnlocked reads. Without this distinction,
+// clicking the "Remember" tab directly would silently unlock past
+// Teach/Grasp, exactly the bug decision 1 in the design closes.
 export async function POST(request) {
   const userId = await getSessionUserId();
   if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   try {
-    const { subtopicId, moduleIndex, stage } = await request.json();
+    const { subtopicId, moduleIndex, stage, action } = await request.json();
     if (!subtopicId || typeof moduleIndex !== "number" || !VALID_STAGES.includes(stage)) {
       return NextResponse.json({ error: "subtopicId, a numeric moduleIndex, and a valid stage are required" }, { status: 400 });
     }
+    const effectiveAction = action === "advance" ? "advance" : "view";
+
+    const moduleRows = await db
+      .select()
+      .from(lessonModules)
+      .where(and(eq(lessonModules.subtopicId, subtopicId), eq(lessonModules.orderIndex, moduleIndex)));
+    const moduleRow = moduleRows[0];
+    if (!moduleRow) return NextResponse.json({ error: `No module at index ${moduleIndex} for subtopic ${subtopicId}` }, { status: 404 });
 
     const existingRows = await db
       .select()
       .from(mastery)
       .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
-    if (existingRows[0]) {
-      await db
-        .update(mastery)
-        .set({ stage, currentModuleIndex: moduleIndex })
-        .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
-    } else {
-      await db.insert(mastery).values({ userId, subtopicId, stage, currentModuleIndex: moduleIndex });
+    const existing = existingRows[0];
+    const moduleProgress = { ...(existing?.moduleProgress ?? {}) };
+    const key = String(moduleRow.id);
+    const currentUnlockedStage = moduleProgress[key]?.highestStage ?? "teach";
+
+    if (effectiveAction === "advance") {
+      if (!validateStageAdvance(currentUnlockedStage, stage)) {
+        return NextResponse.json({ error: "Cannot advance more than one stage at a time", currentUnlockedStage }, { status: 400 });
+      }
+      moduleProgress[key] = { ...moduleProgress[key], highestStage: stage };
     }
 
-    return NextResponse.json({ subtopicId, moduleIndex, stage });
+    if (existing) {
+      await db
+        .update(mastery)
+        .set({ stage, currentModuleIndex: moduleIndex, moduleProgress })
+        .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
+    } else {
+      await db.insert(mastery).values({ userId, subtopicId, stage, currentModuleIndex: moduleIndex, moduleProgress });
+    }
+
+    return NextResponse.json({ subtopicId, moduleIndex, stage, unlockedStage: moduleProgress[key]?.highestStage ?? "teach" });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });

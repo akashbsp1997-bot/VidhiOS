@@ -18,6 +18,7 @@ import { casesSeed } from "../../../db/seed/cases.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
+import { loadPaperLockMap } from "../../../lib/adaptive/lockState.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
 
@@ -47,6 +48,9 @@ function nextMissingPhase(row, requiredPhases, stage, force) {
 }
 
 export async function GET(request) {
+  const userId = await getSessionUserId();
+  if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const subtopicId = searchParams.get("subtopicId");
   const force = searchParams.get("force") === "true";
@@ -57,6 +61,12 @@ export async function GET(request) {
     const subtopicRows = await db.select().from(subtopics).where(eq(subtopics.id, subtopicId));
     const subtopicRow = subtopicRows[0];
     if (!subtopicRow) return NextResponse.json({ error: `Unknown subtopic: ${subtopicId}` }, { status: 404 });
+
+    const lockMap = await loadPaperLockMap(userId, subtopicRow.subjectId, subtopicRow.paper);
+    const lockInfo = lockMap.get(subtopicId);
+    if (lockInfo?.locked) {
+      return NextResponse.json({ error: "locked", ...lockInfo }, { status: 403 });
+    }
 
     const subjectRows = await db.select().from(subjects).where(eq(subjects.id, subtopicRow.subjectId));
     const subjectDisplayName = subjectRows[0]?.displayName ?? subtopicRow.subjectId;

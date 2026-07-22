@@ -283,6 +283,17 @@ export const mastery = pgTable(
     // for this subtopic, so re-entering resumes where they left off. Null
     // for a subtopic still on the legacy (pre-module) lessons flow.
     currentModuleIndex: integer("current_module_index"),
+    // Per-module mastery-gating state, keyed by lessonModules.id (jsonb
+    // object keys are always strings): { [moduleId]: { highestStage:
+    // "teach"|"grasp"|"remember"|"test", testAttempts: number, bestScore01:
+    // number } }. highestStage is a sequential-completion high-water mark --
+    // distinct from `stage` above (just "where the student is currently
+    // looking," which moves backward freely via tab clicks). testAttempts
+    // is what the next module's unlock check (lib/adaptive/unlocks.js)
+    // requires be >=1, closing the loophole where unrelated prior attempts
+    // elsewhere in the subtopic could already satisfy a pure mastery-score
+    // check before this specific module was ever attempted.
+    moduleProgress: jsonb("module_progress").notNull().default({}),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId, table.subtopicId] }),
@@ -351,16 +362,31 @@ export const lessonModules = pgTable(
     orderIndex: integer("order_index").notNull(), // 0-based sequence within the subtopic
     title: text("title").notNull(),
     scopeNote: text("scope_note").notNull().default(""), // planning output, fed back into every module-scoped prompt as narrowing context
+    // Null = AI-invented fallback module (the subtopic had fewer than 2 real
+    // PYQs to anchor to). Set = this module is built around answering this
+    // exact real exam question -- its Teach/Grasp content is grounded in the
+    // question's real text, and its Test serves this PYQ directly (zero AI
+    // calls) instead of generating one. See app/api/module-lesson/route.js's
+    // plan phase for the selection/threshold logic and
+    // lib/ai/generateModules.js's generateModulePlanFromPyqs.
+    pyqId: text("pyq_id").references(() => pyqs.id),
     // Teach phase, null until first Teach visit to this module
     teachContent: text("teach_content"),
     keyPoints: jsonb("key_points").notNull().default([]), // flat bullet strings, not structured keyProvisions/caseLaw objects
     generatedAt: timestamp("generated_at"),
-    // Practice phase -- covers BOTH Grasp and Remember (no separate image
-    // phase), null until first Grasp visit to this module
+    // Practice phase -- covers Grasp (examples/exercises/mnemonic), null
+    // until first Grasp visit to this module
     examples: jsonb("examples").notNull().default([]),
     exercises: jsonb("exercises").notNull().default([]),
     mnemonic: jsonb("mnemonic"), // single {device, explanation} object, or null
     practiceGeneratedAt: timestamp("practice_generated_at"),
+    // Image phase -- separate from practice again (reintroduced after
+    // initially being cut for cost): null until first Remember visit,
+    // non-fatal on generation failure (see generateModuleImage). Built from
+    // this module's title/keyPoints, not a nested visualOutline tree like
+    // lessons.visualImageDataUri -- a module is already a narrow single
+    // concept, so a flat prompt is enough.
+    visualImageDataUri: text("visual_image_data_uri"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({
