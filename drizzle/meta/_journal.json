@@ -78,6 +78,20 @@
       "when": 1784658984057,
       "tag": "0010_white_living_lightning",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784719745105,
+      "tag": "0011_cuddly_violations",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784720067847,
+      "tag": "0012_absurd_zaladane",
+      "breakpoints": true
     }
   ]
 }
