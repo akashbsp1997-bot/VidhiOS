@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
-import { findPaperTile } from "../../../../lib/subjects/papers.js";
+import { findPaperTile, isOptionalTile } from "../../../../lib/subjects/papers.js";
 
 const STAGE_LABEL = { teach: "Teach", grasp: "Grasp", remember: "Remember", test: "Test" };
 
@@ -66,9 +66,15 @@ export default function PaperSubtopicsPage({ params }) {
       .catch((e) => setError(e.message));
   }, [subjectId, paper]);
 
+  // An optional-subject paper (Law/Literature Paper VI, VII) was reached via
+  // app/papers/optional/[subjectId]/page.jsx -- back should return there
+  // (both this subject's papers), not all the way to the top-level index,
+  // which doesn't link to individual optional papers at all anymore.
   const backLink = (
     <p style={{ fontSize: 12.5, marginBottom: 12 }}>
-      <a href="/">← All papers</a>
+      <a href={tile && isOptionalTile(tile) ? `/papers/optional/${subjectId}` : "/"}>
+        {tile && isOptionalTile(tile) ? "← Both papers for this optional" : "← All papers"}
+      </a>
     </p>
   );
 
