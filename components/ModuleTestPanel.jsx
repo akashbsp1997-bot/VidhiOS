@@ -18,25 +18,35 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
   const [feedback, setFeedback] = useState(null);
   const [loading, setLoading] = useState(true);
   const [grading, setGrading] = useState(false);
-  const [error, setError] = useState(null);
+  // Two separate error states, deliberately -- a GET failure (no question
+  // ever loaded) and a POST/grading failure (question and the student's
+  // already-typed answer both still exist, grading just didn't complete)
+  // are different situations. A single shared error used to collapse both
+  // into the same full-panel "nothing worked, skip this test" view, which
+  // meant a transient grading hiccup (e.g. the model provider returning a
+  // temporary 503 "high demand") silently discarded whatever the student had
+  // just written, with no way to just retry grading it.
+  const [loadError, setLoadError] = useState(null);
+  const [gradingError, setGradingError] = useState(null);
 
   useEffect(() => {
     setQuestion(null);
     setAnswerText("");
     setFeedback(null);
-    setError(null);
+    setLoadError(null);
+    setGradingError(null);
     setLoading(true);
     fetch(`/api/attempt?subtopicId=${encodeURIComponent(subtopicId)}&moduleId=${moduleId}`)
       .then((r) => r.json())
-      .then((data) => (data.error ? setError(data.error) : setQuestion(data)))
-      .catch((e) => setError(e.message))
+      .then((data) => (data.error ? setLoadError(data.error) : setQuestion(data)))
+      .catch((e) => setLoadError(e.message))
       .finally(() => setLoading(false));
   }, [subtopicId, moduleId]);
 
   function submitAnswer() {
     if (!question || !answerText.trim()) return;
     setGrading(true);
-    setError(null);
+    setGradingError(null);
     fetch("/api/attempt", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -52,8 +62,8 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
       }),
     })
       .then((r) => r.json())
-      .then((data) => (data.error ? setError(data.error) : setFeedback(data.feedback)))
-      .catch((e) => setError(e.message))
+      .then((data) => (data.error ? setGradingError(data.error) : setFeedback(data.feedback)))
+      .catch((e) => setGradingError(e.message))
       .finally(() => setGrading(false));
   }
 
@@ -66,21 +76,22 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
   function retryTest() {
     setAnswerText("");
     setFeedback(null);
-    setError(null);
+    setGradingError(null);
     if (question?.questionSource === "pyq") return;
+    setLoadError(null);
     setLoading(true);
     fetch(`/api/attempt?subtopicId=${encodeURIComponent(subtopicId)}&moduleId=${moduleId}&force=true`)
       .then((r) => r.json())
-      .then((data) => (data.error ? setError(data.error) : setQuestion(data)))
-      .catch((e) => setError(e.message))
+      .then((data) => (data.error ? setLoadError(data.error) : setQuestion(data)))
+      .catch((e) => setLoadError(e.message))
       .finally(() => setLoading(false));
   }
 
   if (loading) return <div className="loading">Preparing this module's question…</div>;
-  if (error)
+  if (loadError)
     return (
       <div className="error-box">
-        {error}
+        {loadError}
         <div style={{ marginTop: 8 }}>
           <button className="btn" onClick={onNext}>
             Skip this test
@@ -106,9 +117,14 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
             onChange={(e) => setAnswerText(e.target.value)}
             disabled={grading}
           />
+          {gradingError && (
+            <div className="error-box" style={{ marginTop: 10 }}>
+              {gradingError}
+            </div>
+          )}
           <div style={{ marginTop: 12 }}>
             <button className="btn btn-primary" onClick={submitAnswer} disabled={grading || !answerText.trim()}>
-              {grading ? "Grading…" : "Submit answer"}
+              {grading ? "Grading…" : gradingError ? "Retry grading" : "Submit answer"}
             </button>
           </div>
         </>
