@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
-import { findPaperTile, isOptionalTile } from "../../../../lib/subjects/papers.js";
+import { findPaperTile, isOptionalTile, isCompulsoryLanguageTile } from "../../../../lib/subjects/papers.js";
 
 const STAGE_LABEL = { teach: "Teach", grasp: "Grasp", remember: "Remember", test: "Test" };
 
@@ -66,15 +66,17 @@ export default function PaperSubtopicsPage({ params }) {
       .catch((e) => setError(e.message));
   }, [subjectId, paper]);
 
-  // An optional-subject paper (Law/Literature Paper VI, VII) was reached via
+  // An optional-subject paper was reached via
   // app/papers/optional/[subjectId]/page.jsx -- back should return there
-  // (both this subject's papers), not all the way to the top-level index,
-  // which doesn't link to individual optional papers at all anymore.
+  // (both this subject's papers). A compulsory-language paper was reached
+  // via app/papers/language/page.jsx -- back should return to the language
+  // picker. Neither links from the top-level index directly anymore.
+  const backHref = tile && isOptionalTile(tile) ? `/papers/optional/${subjectId}` : tile && isCompulsoryLanguageTile(tile) ? "/papers/language" : "/";
+  const backLabel =
+    tile && isOptionalTile(tile) ? "← Both papers for this optional" : tile && isCompulsoryLanguageTile(tile) ? "← Choose a different language" : "← All papers";
   const backLink = (
     <p style={{ fontSize: 12.5, marginBottom: 12 }}>
-      <a href={tile && isOptionalTile(tile) ? `/papers/optional/${subjectId}` : "/"}>
-        {tile && isOptionalTile(tile) ? "← Both papers for this optional" : "← All papers"}
-      </a>
+      <a href={backHref}>{backLabel}</a>
     </p>
   );
 
