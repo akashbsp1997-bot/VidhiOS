@@ -124,25 +124,32 @@ Google's free tier has its own daily and per-minute quotas (they vary by
 model and change without notice — check
 https://ai.google.dev/gemini-api/docs/rate-limits for current numbers rather
 than trusting a number here). Every call has a 45s client-side timeout and
-retries a transient rate limit up to twice (see `lib/ai/client.js`); a
-non-transient **daily quota exhaustion** fails fast with a clear
-"today's free quota is used up, try later or enable billing" error instead
-of hanging or retrying pointlessly — surfaced to the student wherever that
-call happens (grading, question generation, lesson/module content) rather
-than a generic failure. If you outgrow the free tier, enable billing on the
-same Google Cloud project at https://aistudio.google.com — no code change
-needed, the same key keeps working.
+retries a transient rate limit or 5xx up to 4 times with exponential backoff
+(2s/4s/8s/15s, ~29s total — see `lib/ai/client.js`); a non-transient **daily
+quota exhaustion** fails fast with a clear "today's free quota is used up,
+try later or enable billing" error instead of retrying pointlessly —
+surfaced to the student wherever that call happens (grading, question
+generation, lesson/module content) rather than a generic failure. If you
+outgrow the free tier, enable billing on the same Google Cloud project at
+https://aistudio.google.com — no code change needed, the same key keeps
+working.
 
-**Ways to stretch the free tier further without paying:**
+**Optional automatic fallback to Groq**: set `GROQ_API_KEY` (free, no card
+required — https://console.groq.com/keys) and every text call (grading,
+questions, lesson/module content — not image generation, Groq doesn't serve
+one) automatically retries against Groq's `openai/gpt-oss-120b` if Gemini
+fails for any reason after exhausting its own retries — a fully separate
+account/quota/infrastructure from Google's, so a Gemini-side demand spike or
+exhausted daily quota doesn't have to mean a failed grading attempt. Leave
+`GROQ_API_KEY` unset to keep the previous behavior exactly (Gemini's own
+error surfaces directly, no fallback attempted).
+
+**Other ways to stretch the free tier further without paying:**
 - Multiple Google AI Studio keys, each from its own Google Cloud project,
   each with its own independent free-tier quota — legitimate (each is a
   real project you created), though it's manual key-juggling, not something
   this app automates for you, and Google could still tighten free-tier
   policy for accounts it judges are gaming quota this way.
-- Other providers with a genuinely free API tier (e.g. Groq, Mistral's free
-  tier) as a fallback when Google's is exhausted — would need a second
-  `lib/ai/client.js`-style wrapper and a provider-switch in the routes that
-  call it; not implemented here.
 - **Not implemented, and not recommended:** scraping the consumer Gemini web
   app (gemini.google.com) instead of the real API. That's not a documented,
   stable interface, it's against Google's terms of service, and it can get
