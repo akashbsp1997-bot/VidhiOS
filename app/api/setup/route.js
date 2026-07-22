@@ -57,7 +57,24 @@ export async function GET(request) {
     await db
       .insert(subtopics)
       .values(allSubtopicsSeed)
-      .onConflictDoUpdate({ target: subtopics.id, set: { pyqFrequency: sql`excluded.pyq_frequency` } });
+      .onConflictDoUpdate({
+        target: subtopics.id,
+        // Previously only synced pyqFrequency -- a subtopic id that already
+        // existed with a stale/wrong subjectId, paper, section, or topicText
+        // (e.g. from an earlier seed revision) would silently keep those
+        // wrong values forever, no matter how many times this route reran,
+        // since nothing else in this upsert ever corrected them. Every
+        // column this route actually seeds now stays in sync with the seed
+        // files on every run, matching how subjects'/pyqs' own upserts here
+        // already treat their seed files as the source of truth.
+        set: {
+          subjectId: sql`excluded.subject_id`,
+          paper: sql`excluded.paper`,
+          section: sql`excluded.section`,
+          topicText: sql`excluded.topic_text`,
+          pyqFrequency: sql`excluded.pyq_frequency`,
+        },
+      });
     log.push(`OK  seed:subtopics (${allSubtopicsSeed.length})`);
   } catch (err) {
     hadError = true;

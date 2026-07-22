@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PAPER_TILES } from "../lib/subjects/papers.js";
+import { PAPER_TILES, isOptionalTile } from "../lib/subjects/papers.js";
 
 // Groups PAPER_TILES' own static `group` field -- server order (this file's
 // static array order) is preserved since JS objects preserve string-key
@@ -57,7 +57,24 @@ export default function PapersIndex() {
   const overallMastery = withContent.length
     ? withContent.reduce((sum, t) => sum + (t.avgMasteryScore ?? 0), 0) / withContent.length
     : 0;
-  const groups = groupTiles(tiles);
+
+  // Optional-subject paper tiles (Law/Literature Paper VI, VII) don't render
+  // directly on this top-level grid -- clicking straight into "Paper VI"
+  // without first knowing which optional subject it belongs to isn't
+  // meaningful. Instead they're collapsed into one "Optional Subject" entry
+  // point that goes to app/papers/optional/page.jsx (choose a subject), then
+  // app/papers/optional/[subjectId]/page.jsx (both of that subject's papers,
+  // per explicit request). The individual paper tiles from /api/papers are
+  // still what those two pages render -- only this top-level grid excludes
+  // them, so their real subtopicCount/mastery data isn't duplicated anywhere.
+  const optionalTiles = tiles.filter(isOptionalTile);
+  const optionalWithContent = optionalTiles.filter((t) => t.subtopicCount > 0);
+  const optionalSubtopicCount = optionalTiles.reduce((sum, t) => sum + t.subtopicCount, 0);
+  const optionalAvgMastery = optionalWithContent.length
+    ? optionalWithContent.reduce((sum, t) => sum + t.subtopicCount * (t.avgMasteryScore ?? 0), 0) /
+      optionalWithContent.reduce((sum, t) => sum + t.subtopicCount, 0)
+    : null;
+  const groups = groupTiles(tiles.filter((t) => !isOptionalTile(t)));
 
   return (
     <>
@@ -87,8 +104,12 @@ export default function PapersIndex() {
                 className={`paper-tile${t.subtopicCount === 0 ? " coming-soon" : ""}`}
                 href={`/papers/${t.subjectId}/${t.paper}`}
               >
-                <div className="paper-tile-label">{t.label}</div>
+                <div className="paper-tile-label">
+                  {t.label}
+                  {t.qualifying && <span className="qualifying-pill">Qualifying</span>}
+                </div>
                 <div className="paper-tile-meta">
+                  {t.marks ? `${t.marks} marks · ` : ""}
                   {t.subtopicCount > 0
                     ? `${t.subtopicCount} subtopic${t.subtopicCount === 1 ? "" : "s"} · ${Math.round((t.avgMasteryScore ?? 0) * 100)}% mastery`
                     : "Coming soon"}
@@ -98,6 +119,20 @@ export default function PapersIndex() {
           </div>
         </div>
       ))}
+
+      <div className="card">
+        <h2>CSE Mains — Merit — Optional Subject</h2>
+        <div className="paper-tile-grid">
+          <a className={`paper-tile${optionalSubtopicCount === 0 ? " coming-soon" : ""}`} href="/papers/optional">
+            <div className="paper-tile-label">Paper VI &amp; VII: Optional Subject</div>
+            <div className="paper-tile-meta">
+              {optionalSubtopicCount > 0
+                ? `${optionalSubtopicCount} subtopics across your optional · ${Math.round((optionalAvgMastery ?? 0) * 100)}% mastery · choose a subject →`
+                : "Choose your optional subject →"}
+            </div>
+          </a>
+        </div>
+      </div>
     </>
   );
 }

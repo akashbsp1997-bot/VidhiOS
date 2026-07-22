@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
-import { findPaperTile } from "../../../../lib/subjects/papers.js";
+import { findPaperTile, isOptionalTile } from "../../../../lib/subjects/papers.js";
 
 const STAGE_LABEL = { teach: "Teach", grasp: "Grasp", remember: "Remember", test: "Test" };
 
@@ -31,17 +31,18 @@ function difficultyLabel(score) {
   return "Advanced Pro";
 }
 
-// A single-paper subject's (GS papers, Essay, both Prelims papers) tile
-// label already IS the full paper name. The two-paper optional subjects
-// (Law, Literature) only carry "Paper I"/"Paper II" as their label, so this
-// prefixes the optional's own name (pulled from the tile's `group`, e.g.
-// "CSE Mains — Optional: Law" -> "Law"). Fully static -- doesn't need the
-// subtopics API response, so the heading is correct even before/without any
-// data loading (the "coming soon" case).
+// A single-paper subject's (GS papers, Essay, both qualifying papers, both
+// Prelims papers) tile label already IS the full paper name. The two-paper
+// optional subjects (Law, Literature) carry "Paper VI/VII: Optional Paper
+// 1/2" as their label -- already says "Optional", so this just prefixes the
+// optional's own name (pulled from the tile's `group`, e.g.
+// "CSE Mains — Merit — Optional: Law" -> "Law") without repeating the word.
+// Fully static -- doesn't need the subtopics API response, so the heading is
+// correct even before/without any data loading (the "coming soon" case).
 function paperHeading(tile) {
   if (!tile) return null;
   const optionalMatch = tile.group.match(/Optional: (.+)$/);
-  return optionalMatch ? `${optionalMatch[1]} Optional — ${tile.label}` : tile.label;
+  return optionalMatch ? `${optionalMatch[1]} — ${tile.label}` : tile.label;
 }
 
 export default function PaperSubtopicsPage({ params }) {
@@ -65,9 +66,15 @@ export default function PaperSubtopicsPage({ params }) {
       .catch((e) => setError(e.message));
   }, [subjectId, paper]);
 
+  // An optional-subject paper (Law/Literature Paper VI, VII) was reached via
+  // app/papers/optional/[subjectId]/page.jsx -- back should return there
+  // (both this subject's papers), not all the way to the top-level index,
+  // which doesn't link to individual optional papers at all anymore.
   const backLink = (
     <p style={{ fontSize: 12.5, marginBottom: 12 }}>
-      <a href="/">← All papers</a>
+      <a href={tile && isOptionalTile(tile) ? `/papers/optional/${subjectId}` : "/"}>
+        {tile && isOptionalTile(tile) ? "← Both papers for this optional" : "← All papers"}
+      </a>
     </p>
   );
 
