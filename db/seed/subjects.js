@@ -7,15 +7,14 @@
 // every other subject is, and so a fresh database (not just the original
 // production one) has it from a single /api/setup run.
 //
-// gs1/gs3/gs4/essay/prelims-gs/prelims-csat/literature-optional/
-// compulsory-language/english-qualifying have zero subtopics as of this
-// seed -- they exist here purely so the top-level papers index (see
+// Every subject except law-optional/gs2 has zero subtopics as of this seed
+// -- they exist here purely so the top-level papers index (see
 // lib/subjects/papers.js, app/page.jsx) can show the full real UPSC CSE
 // exam structure as "coming soon" tiles, not just the papers that already
-// have content. law-optional/gs2 are the only ones with real
-// subtopics/PYQs/sources today.
+// have content.
+import { getOptionalSubjects, getCompulsoryLanguages } from "../../lib/subjects/papers.js";
+
 export const subjectsSeed = [
-  { id: "law-optional", displayName: "Law Optional", category: "optional", examStage: "mains", answerFormat: "descriptive" },
   { id: "gs2", displayName: "GS Paper II", category: "gs", examStage: "mains", answerFormat: "descriptive" },
   { id: "gs1", displayName: "GS Paper I", category: "gs", examStage: "mains", answerFormat: "descriptive" },
   { id: "gs3", displayName: "GS Paper III", category: "gs", examStage: "mains", answerFormat: "descriptive" },
@@ -23,12 +22,31 @@ export const subjectsSeed = [
   { id: "essay", displayName: "Essay", category: "essay", examStage: "mains", answerFormat: "essay" },
   { id: "prelims-gs", displayName: "CSE Prelims — General Studies", category: "prelims", examStage: "prelims", answerFormat: "mcq" },
   { id: "prelims-csat", displayName: "CSE Prelims — CSAT (Quant)", category: "prelims", examStage: "prelims", answerFormat: "mcq" },
-  { id: "literature-optional", displayName: "Literature Optional", category: "optional", examStage: "mains", answerFormat: "descriptive" },
-  // Qualifying-only Mains papers -- NOT counted toward final merit ranking
+  // Qualifying-only Mains paper -- NOT counted toward final merit ranking
   // (need a minimum 25% each just to have the merit papers evaluated at
-  // all). Added per the user's explicit correction of the official Mains
-  // structure; this app's first pass at the papers index omitted these two
-  // entirely.
-  { id: "compulsory-language", displayName: "Paper A: Compulsory Indian Language", category: "qualifying", examStage: "mains", answerFormat: "descriptive" },
+  // all). Paper A's own 22 language choices are generated below instead --
+  // this is only the fixed, no-choice Paper B.
   { id: "english-qualifying", displayName: "Paper B: English Language", category: "qualifying", examStage: "mains", answerFormat: "descriptive" },
+  // All 48 real UPSC optional subjects (25 general incl. Law, 23 literature-
+  // of-language) and all 22 Eighth-Schedule Paper A language choices,
+  // generated from lib/subjects/papers.js's own PAPER_TILES data instead of
+  // duplicated here by hand -- avoids the two ever drifting apart. Replaces
+  // this file's earlier "law-optional" + generic "literature-optional" +
+  // generic "compulsory-language" placeholders (law-optional's displayName
+  // below matches exactly what those three lines used to say by hand; the
+  // other two were never real single subjects, just early guesses).
+  ...getOptionalSubjects().map((s) => ({
+    id: s.subjectId,
+    displayName: `${s.displayName} Optional`,
+    category: "optional",
+    examStage: "mains",
+    answerFormat: "descriptive",
+  })),
+  ...getCompulsoryLanguages().map((s) => ({
+    id: s.subjectId,
+    displayName: `Paper A: ${s.displayName}`,
+    category: "qualifying",
+    examStage: "mains",
+    answerFormat: "descriptive",
+  })),
 ];

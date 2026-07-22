@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PAPER_TILES, isOptionalTile } from "../lib/subjects/papers.js";
+import { PAPER_TILES, isOptionalTile, isCompulsoryLanguageTile } from "../lib/subjects/papers.js";
 
 // Groups PAPER_TILES' own static `group` field -- server order (this file's
 // static array order) is preserved since JS objects preserve string-key
@@ -74,7 +74,18 @@ export default function PapersIndex() {
     ? optionalWithContent.reduce((sum, t) => sum + t.subtopicCount * (t.avgMasteryScore ?? 0), 0) /
       optionalWithContent.reduce((sum, t) => sum + t.subtopicCount, 0)
     : null;
-  const groups = groupTiles(tiles.filter((t) => !isOptionalTile(t)));
+
+  // Same collapsing treatment as the optional-subject tiles above, for the
+  // same reason: Paper A has 22 real language choices now (see
+  // lib/subjects/papers.js), and clicking straight into "Paper A: Hindi"
+  // without first choosing a language isn't meaningful. Collapsed into one
+  // picker entry point (app/papers/language/page.jsx) instead, rendered
+  // inline within the existing "CSE Mains — Qualifying" group below (Paper
+  // B has no such choice, so it renders normally alongside it).
+  const languageTiles = tiles.filter(isCompulsoryLanguageTile);
+  const languageSubtopicCount = languageTiles.reduce((sum, t) => sum + t.subtopicCount, 0);
+
+  const groups = groupTiles(tiles.filter((t) => !isOptionalTile(t) && !isCompulsoryLanguageTile(t)));
 
   return (
     <>
@@ -98,6 +109,17 @@ export default function PapersIndex() {
         <div className="card" key={group}>
           <h2>{group}</h2>
           <div className="paper-tile-grid">
+            {group === "CSE Mains — Qualifying" && (
+              <a className={`paper-tile${languageSubtopicCount === 0 ? " coming-soon" : ""}`} href="/papers/language">
+                <div className="paper-tile-label">
+                  Paper A: Compulsory Indian Language
+                  <span className="qualifying-pill">Qualifying</span>
+                </div>
+                <div className="paper-tile-meta">
+                  300 marks · {languageSubtopicCount > 0 ? `${languageSubtopicCount} subtopics · ` : ""}choose a language →
+                </div>
+              </a>
+            )}
             {items.map((t) => (
               <a
                 key={`${t.subjectId}-${t.paper}`}
