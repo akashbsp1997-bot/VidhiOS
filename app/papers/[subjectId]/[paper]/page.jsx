@@ -5,6 +5,16 @@ import { findPaperTile } from "../../../../lib/subjects/papers.js";
 
 const STAGE_LABEL = { teach: "Teach", grasp: "Grasp", remember: "Remember", test: "Test" };
 
+// How many upcoming locked subtopics stay visible (fading out) beyond the
+// unlocked frontier, and how opaque each one is -- position 0 (right after
+// the last unlocked subtopic) is the most visible, fading toward
+// near-invisible by the edge of the window. Anything past this window isn't
+// rendered at all. Tunable -- not something the request specified an exact
+// number for, 3 is a reasonable "coming attractions" preview without
+// spoiling the whole remaining chain.
+const FADE_WINDOW = 3;
+const FADE_OPACITIES = [0.55, 0.35, 0.18];
+
 // Same thresholds as the old flat dashboard's difficultyLabel -- even
 // thirds, since app/api/subtopics/route.js's difficultyScore is already a
 // rough blend of two proxies, not a calibrated difficulty measure.
@@ -83,6 +93,23 @@ export default function PaperSubtopicsPage({ params }) {
 
   const overallMastery = subtopicsData.reduce((sum, s) => sum + s.masteryScore, 0) / subtopicsData.length;
 
+  // Only unlocked subtopics plus a small "preview" window of upcoming
+  // locked ones are rendered at all -- everything further out stays fully
+  // hidden until earlier subtopics are mastered, per explicit request
+  // ("only a few of the first subtopics must be visible... locked
+  // subtopics must slowly fade out"). Locking is effectively sequential
+  // (each subtopic's lock depends on the immediately preceding one's
+  // mastery -- see lib/adaptive/unlocks.js's computeSubtopicLocks), so the
+  // first locked index is the one meaningful frontier: everything before it
+  // is unlocked, everything from there on is locked in a chain. As earlier
+  // subtopics get mastered, that frontier moves forward and previously
+  // hidden ones enter the fade window, then become fully visible/unlocked --
+  // no separate "reveal" mechanism needed, this is just re-derived from the
+  // same server-computed lock state on every load.
+  const firstLockedIndex = subtopicsData.findIndex((s) => s.locked);
+  const visibleSubtopics = firstLockedIndex === -1 ? subtopicsData : subtopicsData.slice(0, firstLockedIndex + FADE_WINDOW);
+  const hiddenCount = subtopicsData.length - visibleSubtopics.length;
+
   return (
     <>
       {backLink}
@@ -94,38 +121,47 @@ export default function PaperSubtopicsPage({ params }) {
       </p>
 
       <div className="card">
-        {subtopicsData.map((s) => (
-          <div className={`subtopic-row${s.locked ? " locked" : ""}`} key={s.id}>
-            <span className="subtopic-code">{s.id}</span>
-            <span className="subtopic-text">
-              {s.locked ? <span>{s.topicText}</span> : <a href={`/learn/${s.id}`}>{s.topicText}</a>}
-              <div className="subtopic-meta">
-                {s.locked ? (
-                  <span className="locked-pill">
-                    Locked — reach {s.requiredMasteryPct}% mastery on {s.requiredSubtopicText} first (
-                    {s.currentMasteryPct}%/{s.requiredMasteryPct}%)
-                  </span>
-                ) : (
-                  <>
-                    {s.section} · {s.pyqFrequency} PYQ appearance{s.pyqFrequency === 1 ? "" : "s"} · {s.attemptsCount}{" "}
-                    attempted ·{" "}
-                    <a href={`/sources/${s.id}`}>
-                      {s.sourceCount} source{s.sourceCount === 1 ? "" : "s"}
-                    </a>
-                  </>
-                )}
-              </div>
-            </span>
-            <span className="tier-pill" style={{ fontSize: 11 }}>
-              {difficultyLabel(s.difficultyScore)}
-            </span>
-            <span className={`stage-pill stage-${s.stage}`}>{STAGE_LABEL[s.stage]}</span>
-            <span className={`tier-pill${s.currentTier === 3 ? " t3" : ""}`}>tier {s.currentTier}</span>
-            <span className="bar" title={`${Math.round(s.masteryScore * 100)}% mastery`}>
-              <span style={{ width: `${Math.round(s.masteryScore * 100)}%` }} />
-            </span>
-          </div>
-        ))}
+        {visibleSubtopics.map((s, i) => {
+          const fadeStep = firstLockedIndex === -1 ? -1 : i - firstLockedIndex;
+          const opacity = fadeStep >= 0 ? FADE_OPACITIES[Math.min(fadeStep, FADE_OPACITIES.length - 1)] : undefined;
+          return (
+            <div className={`subtopic-row${s.locked ? " locked" : ""}`} style={opacity != null ? { opacity } : undefined} key={s.id}>
+              <span className="subtopic-code">{s.id}</span>
+              <span className="subtopic-text">
+                {s.locked ? <span>{s.topicText}</span> : <a href={`/learn/${s.id}`}>{s.topicText}</a>}
+                <div className="subtopic-meta">
+                  {s.locked ? (
+                    <span className="locked-pill">
+                      Locked — reach {s.requiredMasteryPct}% mastery on {s.requiredSubtopicText} first (
+                      {s.currentMasteryPct}%/{s.requiredMasteryPct}%)
+                    </span>
+                  ) : (
+                    <>
+                      {s.section} · {s.pyqFrequency} PYQ appearance{s.pyqFrequency === 1 ? "" : "s"} · {s.attemptsCount}{" "}
+                      attempted ·{" "}
+                      <a href={`/sources/${s.id}`}>
+                        {s.sourceCount} source{s.sourceCount === 1 ? "" : "s"}
+                      </a>
+                    </>
+                  )}
+                </div>
+              </span>
+              <span className="tier-pill" style={{ fontSize: 11 }}>
+                {difficultyLabel(s.difficultyScore)}
+              </span>
+              <span className={`stage-pill stage-${s.stage}`}>{STAGE_LABEL[s.stage]}</span>
+              <span className={`tier-pill${s.currentTier === 3 ? " t3" : ""}`}>tier {s.currentTier}</span>
+              <span className="bar" title={`${Math.round(s.masteryScore * 100)}% mastery`}>
+                <span style={{ width: `${Math.round(s.masteryScore * 100)}%` }} />
+              </span>
+            </div>
+          );
+        })}
+        {hiddenCount > 0 && (
+          <p className="section-hint" style={{ marginTop: 10 }}>
+            +{hiddenCount} more subtopic{hiddenCount === 1 ? "" : "s"} — keep mastering the ones above to reveal them.
+          </p>
+        )}
       </div>
     </>
   );
