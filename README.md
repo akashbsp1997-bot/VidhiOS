@@ -36,15 +36,15 @@ network from code execution, so:
 
 ```bash
 cp .env.example .env.local
-# fill in DATABASE_URL and OPENROUTER_API_KEY
+# fill in DATABASE_URL and GOOGLE_AI_API_KEY
 ```
 
-Get an OpenRouter API key at [openrouter.ai/keys](https://openrouter.ai/keys). Text
-generation (grading, questions, lessons) defaults to a free model
-(`nvidia/nemotron-3-nano-30b-a3b:free`), so no billing is required for that. The
-diagram image generation (`google/gemini-2.5-flash-image`) is paid and needs
-OpenRouter billing set up if you want it — it fails silently (no diagram, rest
-of the lesson unaffected) without credits. See "Costs to expect" below.
+Get a free Google AI Studio key at
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey) — no card
+required. The app calls Google's Gemini API directly with this key (text via
+`gemini-3.5-flash`, diagram images via `gemini-3.1-flash-image`), not through
+OpenRouter — see "Costs to expect" below for why, and for what happens when
+the free tier's quota runs out.
 
 ## 3. Create tables + seed data
 
@@ -80,7 +80,7 @@ vercel deploy --prod
 ```
 
 Then in the Vercel project settings, add the same environment variables
-(`DATABASE_URL`, `OPENROUTER_API_KEY`, `CRON_SECRET`) under **Settings →
+(`DATABASE_URL`, `GOOGLE_AI_API_KEY`, `CRON_SECRET`) under **Settings →
 Environment Variables**. The weekly source-refresh cron (`vercel.json`) picks
 up automatically on deploy — check your plan's cron limits if you change the
 schedule.
@@ -101,28 +101,53 @@ git push -u origin main
 
 Every submitted answer triggers one text model call (grading); reaching a
 new subtopic×tier combination for the first time triggers one more (question
-generation), and the first visit to a subtopic's Teach stage triggers a
-lesson generation (three text calls + one image call). Text calls default to
-`nvidia/nemotron-3-nano-30b-a3b:free` on OpenRouter (NVIDIA's own hosted
-infrastructure), so expect $0 for those. Two other free models/routing setups
-were each tried and failed in turn first (one hung, one stayed 429-rate-limited
-even across retries, and OpenRouter's own free-model auto-router kept landing
-back on that same rate-limited one) before pinning this one; any free model
-can still be pulled from OpenRouter's free tier without notice or be
-temporarily rate-limited/congested under shared demand (every call has a 45s
-client-side timeout and retries a `429` up to twice, see `lib/ai/client.js`,
-so a bad response degrades to a clear error rather than a silent hang or an
-immediate failure) — check https://openrouter.ai/api/v1/models for current
-`$0`-priced entries if this one also proves unreliable, and consider either
-linking a personal provider API key at
-https://openrouter.ai/settings/integrations for dedicated quota, or pinning
-`MODEL` in `lib/ai/client.js` to a paid OpenRouter model (this app previously ran on
-`anthropic/claude-haiku-4.5` — routing through OpenRouter doesn't make Claude
-free, it just avoids Anthropic's own prepaid-billing requirement). The
-diagram image call (`google/gemini-2.5-flash-image`) is priced per-image, not
-per-token, and is NOT free — without OpenRouter credits it fails (silently;
-the rest of the lesson still generates, just without a diagram). Keep an eye
-on [openrouter.ai/activity](https://openrouter.ai/activity) if you enable it.
+generation); and each *module's* first Teach/Grasp visit triggers one text
+call each, plus one image call on first Remember visit (see
+`docs/ARCHITECTURE.md` for the per-module lazy-generation model — nothing
+generates a whole subtopic or paper up front). All of this calls Google's
+Gemini API directly (`gemini-3.5-flash` text, `gemini-3.1-flash-image`
+images) with your own `GOOGLE_AI_API_KEY`, so cost follows Google's own free
+tier, not a third-party balance.
+
+**This app used to route through OpenRouter** (as a BYOK pass-through to the
+same Google key) instead of calling Google directly. That was dropped
+2026-07-22 after a live failure showed BYOK doesn't actually avoid needing a
+funded account: OpenRouter pre-authorizes every request against its own
+credit *balance* using the model's list price × `max_tokens`, before ever
+reaching the linked key — so a $0 OpenRouter balance blocks every call
+outright ("requires more credits") regardless of BYOK's fee-free allowance,
+since actual near-zero billing never comes into it if the pre-flight check
+never lets the request through. Calling Google directly removes that
+middleman gate entirely.
+
+Google's free tier has its own daily and per-minute quotas (they vary by
+model and change without notice — check
+https://ai.google.dev/gemini-api/docs/rate-limits for current numbers rather
+than trusting a number here). Every call has a 45s client-side timeout and
+retries a transient rate limit up to twice (see `lib/ai/client.js`); a
+non-transient **daily quota exhaustion** fails fast with a clear
+"today's free quota is used up, try later or enable billing" error instead
+of hanging or retrying pointlessly — surfaced to the student wherever that
+call happens (grading, question generation, lesson/module content) rather
+than a generic failure. If you outgrow the free tier, enable billing on the
+same Google Cloud project at https://aistudio.google.com — no code change
+needed, the same key keeps working.
+
+**Ways to stretch the free tier further without paying:**
+- Multiple Google AI Studio keys, each from its own Google Cloud project,
+  each with its own independent free-tier quota — legitimate (each is a
+  real project you created), though it's manual key-juggling, not something
+  this app automates for you, and Google could still tighten free-tier
+  policy for accounts it judges are gaming quota this way.
+- Other providers with a genuinely free API tier (e.g. Groq, Mistral's free
+  tier) as a fallback when Google's is exhausted — would need a second
+  `lib/ai/client.js`-style wrapper and a provider-switch in the routes that
+  call it; not implemented here.
+- **Not implemented, and not recommended:** scraping the consumer Gemini web
+  app (gemini.google.com) instead of the real API. That's not a documented,
+  stable interface, it's against Google's terms of service, and it can get
+  the underlying Google account flagged — a real API key with a real quota
+  is the only approach this app uses or suggests.
 
 ## Extending the source registry
 
