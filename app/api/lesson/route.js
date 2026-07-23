@@ -20,6 +20,7 @@ import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 import { loadPaperLockMap } from "../../../lib/adaptive/lockState.js";
 import { isSubjectUnlocked, checkLockdown } from "../../../lib/adaptive/subjectUnlockState.js";
+import { recordMissionSafe } from "../../../lib/gamification/missions.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
 
@@ -75,6 +76,12 @@ export async function GET(request) {
     if (lockInfo?.locked) {
       return NextResponse.json({ error: "locked", ...lockInfo }, { status: 403 });
     }
+
+    // Awaited (not fire-and-forget) -- a serverless function isn't
+    // guaranteed to keep running background work after the response is
+    // sent, and recordMissionSafe already swallows its own errors so this
+    // can never fail the real request.
+    await recordMissionSafe(userId, "learn");
 
     const subjectRows = await db.select().from(subjects).where(eq(subjects.id, subtopicRow.subjectId));
     const subjectDisplayName = subjectRows[0]?.displayName ?? subtopicRow.subjectId;

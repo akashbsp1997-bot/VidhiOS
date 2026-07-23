@@ -25,6 +25,8 @@ import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 import { generateMcq } from "../../../lib/ai/generateMcq.js";
 import { loadUnlockedSubjectIds, isSubjectUnlocked, checkLockdown } from "../../../lib/adaptive/subjectUnlockState.js";
+import { isPassingScore } from "../../../lib/adaptive/scoring.js";
+import { recordMissionSafe } from "../../../lib/gamification/missions.js";
 
 const MCQ_DIFFICULTY_TIER = 2; // flat -- no adaptive tiering for MCQ mode (see file header)
 const MCQ_MARKS = 2; // standard real UPSC Prelims MCQ weight
@@ -160,6 +162,9 @@ export async function POST(request) {
       .from(attempts)
       .where(and(eq(attempts.userId, userId), eq(attempts.questionSource, "mcq")));
     const stats = { attempted: statsRows.length, correct: statsRows.filter((r) => r.score === 100).length };
+
+    await recordMissionSafe(userId, "practice");
+    if (isPassingScore(correct ? 100 : 0)) await recordMissionSafe(userId, "pass");
 
     return NextResponse.json({ correct, correctIndex: questionRow.correctIndex, explanation: questionRow.explanation, stats });
   } catch (err) {

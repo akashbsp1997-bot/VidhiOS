@@ -25,6 +25,7 @@ import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 import { loadPaperLockMap } from "../../../lib/adaptive/lockState.js";
 import { computeModuleLocks, isStageUnlocked, validateStageAdvance } from "../../../lib/adaptive/unlocks.js";
 import { isSubjectUnlocked, checkLockdown } from "../../../lib/adaptive/subjectUnlockState.js";
+import { recordMissionSafe } from "../../../lib/gamification/missions.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
 
@@ -243,6 +244,10 @@ export async function GET(request) {
     if (!isStageUnlocked(stage, unlockedStage)) {
       return NextResponse.json({ error: "stage_locked", requiredStage: unlockedStage }, { status: 403 });
     }
+
+    // Only recorded once every lock check above has passed -- a 403'd
+    // request never counts as "engaged with learning content today."
+    await recordMissionSafe(userId, "learn");
 
     const phase = nextMissingPhase(row, STAGE_REQUIRES[stage] ?? [], stage, force);
     const modulesSummary = await buildModulesSummary(modules, moduleLocks);

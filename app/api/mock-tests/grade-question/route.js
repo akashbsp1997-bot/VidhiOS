@@ -15,6 +15,8 @@ import { mockTests, mockTestQuestions, subtopics } from "../../../../db/schema.j
 import { getSessionUserId } from "../../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../../lib/subjects/config.js";
 import { gradeAnswer } from "../../../../lib/ai/grade.js";
+import { isPassingScore } from "../../../../lib/adaptive/scoring.js";
+import { recordMissionSafe } from "../../../../lib/gamification/missions.js";
 
 export async function POST(request) {
   const userId = await getSessionUserId();
@@ -47,6 +49,9 @@ export async function POST(request) {
       .update(mockTestQuestions)
       .set({ answerText, score: feedback.score, feedback })
       .where(eq(mockTestQuestions.id, question.id));
+
+    await recordMissionSafe(userId, "practice");
+    if (isPassingScore(feedback.score)) await recordMissionSafe(userId, "pass");
 
     return NextResponse.json({ score: feedback.score, feedback });
   } catch (err) {

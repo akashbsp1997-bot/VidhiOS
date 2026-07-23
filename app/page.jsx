@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { PAPER_TILES, isOptionalTile, isCompulsoryLanguageTile } from "../lib/subjects/papers.js";
+import MissionsPanel from "../components/MissionsPanel.jsx";
 
 // Groups PAPER_TILES' own static `group` field -- server order (this file's
 // static array order) is preserved since JS objects preserve string-key
@@ -140,6 +141,8 @@ export default function PapersIndex() {
           </a>
         </div>
       )}
+
+      {onboardingComplete && <MissionsPanel />}
 
       {today && (
         <div className="card">

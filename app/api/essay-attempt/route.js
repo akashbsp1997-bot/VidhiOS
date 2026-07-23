@@ -14,6 +14,8 @@ import { db } from "../../../lib/db.js";
 import { essayTopics, essayAttempts } from "../../../db/schema.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { checkLockdown } from "../../../lib/adaptive/subjectUnlockState.js";
+import { isPassingScore } from "../../../lib/adaptive/scoring.js";
+import { recordMissionSafe } from "../../../lib/gamification/missions.js";
 import { gradeEssay } from "../../../lib/ai/gradeEssay.js";
 
 export async function GET(request) {
@@ -56,6 +58,9 @@ export async function POST(request) {
       .insert(essayAttempts)
       .values({ userId, essayTopicId: topicId, essayText, score: feedback.score, feedback })
       .returning();
+
+    await recordMissionSafe(userId, "practice");
+    if (isPassingScore(feedback.score)) await recordMissionSafe(userId, "pass");
 
     return NextResponse.json({ id: saved.id, feedback });
   } catch (err) {

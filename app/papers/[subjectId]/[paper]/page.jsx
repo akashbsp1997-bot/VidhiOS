@@ -54,10 +54,10 @@ export default function PaperSubtopicsPage({ params }) {
 
   const [subtopicsData, setSubtopicsData] = useState(null);
   const [error, setError] = useState(null);
+  const [unlockPasses, setUnlockPasses] = useState([]);
+  const [usingPassFor, setUsingPassFor] = useState(null);
 
-  useEffect(() => {
-    setSubtopicsData(null);
-    setError(null);
+  function loadSubtopics() {
     fetch(`/api/subtopics?subjectId=${encodeURIComponent(subjectId)}&paper=${paper}`)
       .then((r) => r.json())
       .then((data) => {
@@ -65,7 +65,36 @@ export default function PaperSubtopicsPage({ params }) {
         else setSubtopicsData(data.subtopics);
       })
       .catch((e) => setError(e.message));
+  }
+
+  useEffect(() => {
+    setSubtopicsData(null);
+    setError(null);
+    loadSubtopics();
+    fetch("/api/items")
+      .then((r) => r.json())
+      .then((data) => setUnlockPasses(data.usableItems?.filter((i) => i.itemType === "unlock_pass") ?? []))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjectId, paper]);
+
+  function useEarlyAccessPass(subtopicId) {
+    if (!unlockPasses.length) return;
+    setUsingPassFor(subtopicId);
+    fetch("/api/items", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ itemId: unlockPasses[0].id, action: "use_unlock_pass", subtopicId }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.error) {
+          setUnlockPasses((prev) => prev.slice(1));
+          loadSubtopics();
+        }
+      })
+      .finally(() => setUsingPassFor(null));
+  }
 
   // An optional-subject paper was reached via
   // app/papers/optional/[subjectId]/page.jsx -- back should return there
@@ -174,6 +203,16 @@ export default function PaperSubtopicsPage({ params }) {
                     <span className="locked-pill">
                       Locked — reach {s.requiredMasteryPct}% mastery on {s.requiredSubtopicText} first (
                       {s.currentMasteryPct}%/{s.requiredMasteryPct}%)
+                      {unlockPasses.length > 0 && (
+                        <button
+                          className="btn"
+                          style={{ marginLeft: 8, fontSize: 11, padding: "2px 8px" }}
+                          disabled={usingPassFor === s.id}
+                          onClick={() => useEarlyAccessPass(s.id)}
+                        >
+                          {usingPassFor === s.id ? "Using…" : "🎟 Use early access pass"}
+                        </button>
+                      )}
                     </span>
                   ) : (
                     <>

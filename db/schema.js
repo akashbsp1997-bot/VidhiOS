@@ -570,9 +570,94 @@ export const mastery = pgTable(
     // signals instead of conflating them.
     notes: text("notes").notNull().default(""),
     selfStatus: text("self_status").notNull().default("not-started"), // 'not-started' | 'in-progress' | 'done'
+    // Set only by redeeming an 'unlock_pass' item (see playerItems below) on
+    // this subtopic -- while in the future, lib/adaptive/lockState.js's
+    // loadPaperLockMap treats this subtopic as unlocked regardless of the
+    // real subtopic-chain mastery check, i.e. "early access to a locked
+    // topic." Null for every subtopic no pass was ever spent on. Deliberately
+    // subtopic-chain-only, not module-chain -- redeeming a pass to skip
+    // straight to a module deep inside an unstudied subtopic wouldn't be
+    // "early access to a topic," it'd be skipping the topic entirely.
+    unlockOverrideUntil: timestamp("unlock_override_until"),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId, table.subtopicId] }),
+  })
+);
+
+/**
+ * One row per user -- the account-wide gamification state layered on top of
+ * per-subtopic mastery (that stays the real learning signal; this is the
+ * game-feel layer on top of it). xp accumulates from daily missions
+ * (see dailyMissionLog below) and never decreases. streak fields track
+ * consecutive calendar days with at least one completed mission --
+ * lastActivityDate ('YYYY-MM-DD', UTC) is the cheap way to tell "already
+ * counted today" from "a new day, extend or reset the streak" without a
+ * second query. lockdownGraceUntil is redeemed from a 'lockdown_grace' item
+ * (see playerItems) -- while in the future, lib/adaptive/subjectUnlockState.js's
+ * checkLockdown treats the student as not locked down regardless of the
+ * real missed-checkpoint state.
+ */
+export const playerState = pgTable("player_state", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => authUsers.id),
+  xp: integer("xp").notNull().default(0),
+  currentStreakDays: integer("current_streak_days").notNull().default(0),
+  longestStreakDays: integer("longest_streak_days").notNull().default(0),
+  lastActivityDate: text("last_activity_date"), // 'YYYY-MM-DD', null before the first mission is ever completed
+  lockdownGraceUntil: timestamp("lockdown_grace_until"),
+});
+
+/**
+ * Inventory of special-access items earned from completed daily missions
+ * (see dailyMissionLog) -- one row per item, never merged into a stacked
+ * count, so earnedAt/usedAt stay individually meaningful (e.g. "which of my
+ * 3 unlock passes is this, and when did I get it"). itemType decides what
+ * redeeming it actually does (see mastery.unlockOverrideUntil and
+ * playerState.lockdownGraceUntil above for the two functional types);
+ * 'cosmetic_badge' has no redemption step -- earning it IS the reward, it
+ * just sits in the trophy case permanently (usedAt stays null forever for
+ * this type; lib/gamification/items.js's listUsableItems filters by
+ * itemType, not usedAt alone, so a badge never shows up as "actionable").
+ */
+export const playerItems = pgTable("player_items", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => authUsers.id),
+  itemType: text("item_type").notNull(), // 'unlock_pass' | 'lockdown_grace' | 'cosmetic_badge'
+  label: text("label").notNull(), // display name, e.g. "48h Early Access Pass", "Streak Saver — Day 7"
+  earnedFromMissionKey: text("earned_from_mission_key"), // 'learn' | 'practice' | 'pass', which daily mission granted this
+  earnedAt: timestamp("earned_at").notNull().defaultNow(),
+  usedAt: timestamp("used_at"), // null = still in inventory, unused
+});
+
+/**
+ * One row per (user, calendar day, mission) completed -- the composite PK
+ * is what makes "only reward the first completion per day" a plain
+ * onConflictDoNothing insert rather than a read-then-write race. The three
+ * missionKeys are fixed, not configurable content: 'learn' (viewed/generated
+ * Teach content for at least one subtopic/module today), 'practice'
+ * (submitted at least one graded attempt today, any format), 'pass' (scored
+ * at or above lib/adaptive/scoring.js's PASSING_SCORE_PCT on an attempt
+ * today). rewardItemId is nullable only because it's set in a second write
+ * right after the reward is rolled (see lib/gamification/missions.js) --
+ * every real completion ends up with one.
+ */
+export const dailyMissionLog = pgTable(
+  "daily_mission_log",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id),
+    missionDate: text("mission_date").notNull(), // 'YYYY-MM-DD', UTC
+    missionKey: text("mission_key").notNull(), // 'learn' | 'practice' | 'pass'
+    completedAt: timestamp("completed_at").notNull().defaultNow(),
+    rewardItemId: integer("reward_item_id").references(() => playerItems.id),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.missionDate, table.missionKey] }),
   })
 );
 
