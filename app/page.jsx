@@ -187,6 +187,18 @@ export default function PapersIndex() {
                   {t.subjectLocked && <span className="subject-locked-pill">Locked</span>}
                 </div>
               );
+              // Prelims GS has no subtopic-chain content of its own to show
+              // (Prelims draws on the same GS syllabus, tested objectively)
+              // -- rather than a permanent "coming soon", link straight to
+              // the MCQ practice mode that actually serves it.
+              if (t.subjectId === "prelims-gs") {
+                return (
+                  <a key={`${t.subjectId}-${t.paper}`} className="paper-tile" href="/prelims">
+                    {tileLabel}
+                    <div className="paper-tile-meta">MCQ practice, drawn from your unlocked GS + optional subjects →</div>
+                  </a>
+                );
+              }
               if (t.subjectLocked) {
                 return (
                   <div className="paper-tile subject-locked" key={`${t.subjectId}-${t.paper}`}>
