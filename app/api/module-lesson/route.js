@@ -90,6 +90,13 @@ async function buildModulesSummary(moduleRows, moduleLocks) {
       pyqMarks: anchor?.marks ?? null,
       locked: lock?.locked ?? false,
       lockReason: lock?.reason ?? null,
+      // Same requiredMasteryPct/currentMasteryPct on every locked module in
+      // this subtopic (computeModuleLocks derives both from the one
+      // subtopic-wide masteryScore) -- carried per-module rather than once
+      // at the top level so ModuleTestPanel's "Next module" button can show
+      // *why* module N+1 specifically is locked without a second fetch.
+      requiredMasteryPct: lock?.requiredMasteryPct ?? null,
+      currentMasteryPct: lock?.currentMasteryPct ?? null,
     };
   });
 }

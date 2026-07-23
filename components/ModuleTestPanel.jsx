@@ -13,7 +13,7 @@ const SOURCE_LABEL = { pyq: "Real PYQ", model: "Model question" };
 // app/api/attempt/route.js's handleModuleQuestion), answer it once, then
 // advance to the next module -- no pool, no retry-a-different-question
 // path needed.
-export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isLastModule, onNext }) {
+export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isLastModule, nextModuleLocked, nextModuleLockReasonLabel, onNext, onGraded }) {
   const [question, setQuestion] = useState(null);
   const [answerText, setAnswerText] = useState("");
   const [feedback, setFeedback] = useState(null);
@@ -63,7 +63,20 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
       }),
     })
       .then((r) => r.json())
-      .then((data) => (data.error ? setGradingError(data.error) : setFeedback(data.feedback)))
+      .then((data) => {
+        if (data.error) {
+          setGradingError(data.error);
+          return;
+        }
+        setFeedback(data.feedback);
+        // This attempt just moved masteryScore in the DB, which is exactly
+        // what decides whether the NEXT module is locked (see
+        // lib/adaptive/unlocks.js's computeModuleLocks) -- without this,
+        // the "Next module" button below would keep showing the lock state
+        // from before this attempt until the student left and re-entered
+        // the subtopic, even after a passing retry actually cleared it.
+        onGraded?.();
+      })
       .catch((e) => setGradingError(e.message))
       .finally(() => setGrading(false));
   }
@@ -159,14 +172,34 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
             </>
           )}
 
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
             <button className="btn" onClick={retryTest}>
               Retry this test
             </button>
-            <button className="btn btn-primary" onClick={onNext}>
-              {isLastModule ? "Finish this subtopic →" : "Next module →"}
-            </button>
+            {/* Previously this button called onNext unconditionally even when
+                the next module was locked -- goToModule silently no-ops on a
+                locked module (see components/ModuleLearnFlow.jsx), so
+                clicking it did nothing with zero feedback, reading as "the
+                button doesn't work" rather than "this module is locked." */}
+            {!isLastModule && nextModuleLocked ? (
+              <span className="btn" style={{ opacity: 0.6, cursor: "not-allowed" }} title={nextModuleLockReasonLabel}>
+                🔒 Next module locked
+              </span>
+            ) : (
+              <button className="btn btn-primary" onClick={onNext}>
+                {isLastModule ? "Finish this subtopic →" : "Next module →"}
+              </button>
+            )}
           </div>
+          {!isLastModule && nextModuleLocked && (
+            <p style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 6, marginBottom: 0 }}>
+              {nextModuleLockReasonLabel}
+              {nextModuleLocked.requiredMasteryPct != null &&
+                ` — reach ${nextModuleLocked.requiredMasteryPct}% mastery on this subtopic first (currently ${nextModuleLocked.currentMasteryPct}%). `}
+              Keep practicing this module, or try{" "}
+              <a href="/practice">adaptive practice →</a>.
+            </p>
+          )}
         </div>
       )}
 

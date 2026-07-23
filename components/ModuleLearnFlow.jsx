@@ -223,6 +223,7 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
   const currentModule = modules[moduleIndex];
   const practiceReady = Boolean(moduleContent.practiceGeneratedAt);
   const isLastModule = moduleIndex === modules.length - 1;
+  const nextModule = !isLastModule ? modules[moduleIndex + 1] : null;
 
   const teachPanels = moduleContent.teachContent
     ? [
@@ -427,7 +428,10 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
             moduleId={currentModule.id}
             moduleTitle={currentModule.title}
             isLastModule={isLastModule}
+            nextModuleLocked={nextModule?.locked ? nextModule : null}
+            nextModuleLockReasonLabel={nextModule?.locked ? lockReasonLabel(nextModule.lockReason) : null}
             onNext={() => goToModule(moduleIndex + 1)}
+            onGraded={() => ensureModuleStageReady(moduleIndex, "test")}
           />
         </div>
       )}
