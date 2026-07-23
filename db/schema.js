@@ -253,6 +253,64 @@ export const currentAffairsItems = pgTable(
 );
 
 /**
+ * The Essay paper's topic bank -- deliberately its own table, not shoehorned
+ * into `subtopics`. An essay topic isn't a syllabus concept to Teach/Grasp/
+ * Remember/Test through; it's a single prompt a student writes one full
+ * 1000-1200 word essay on, graded holistically (see essayAttempts below).
+ * `source` distinguishes a REAL past-year UPSC essay topic ('pyq', with
+ * `year` set) from a coaching-guidance/practice-suggested topic ('guidance',
+ * `year` null) -- the two are NEVER conflated (see
+ * db/seed/essay-topics.js's header comment on how each was actually
+ * sourced). `category` is a thematic label (Philosophy, Economy,
+ * Environment, ...) for browsing, independent of `source`.
+ */
+export const essayTopics = pgTable("essay_topics", {
+  id: text("id").primaryKey(),
+  topicText: text("topic_text").notNull(),
+  category: text("category").notNull(),
+  source: text("source").notNull(), // 'pyq' | 'guidance'
+  year: integer("year"), // set only for source:'pyq'
+});
+
+/**
+ * Lazily AI-generated planning guidance for one essay topic -- populated on
+ * first view (same "generate once, reuse for every student" pattern as
+ * `lessons`), never a ready-made essay to copy. This is the "master
+ * content" a student plans their own essay from, generated on demand
+ * rather than pre-authored for all 500+ topics up front.
+ */
+export const essayGuides = pgTable("essay_guides", {
+  essayTopicId: text("essay_topic_id")
+    .primaryKey()
+    .references(() => essayTopics.id),
+  approachNotes: text("approach_notes").notNull(),
+  keyDimensions: jsonb("key_dimensions").notNull().default([]), // [{dimension, points}]
+  quotesAndReferences: jsonb("quotes_and_references").notNull().default([]), // string[]
+  sampleOutline: jsonb("sample_outline").notNull().default({}), // {intro, body: string[], conclusion}
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+});
+
+/**
+ * One row per full essay submitted and graded -- holistically, not
+ * per-provision like descriptive practice (see lib/ai/gradeEssay.js):
+ * content/relevance, multi-dimensionality, structure, balance, and
+ * language, since that's what the real Essay paper is actually judged on.
+ */
+export const essayAttempts = pgTable("essay_attempts", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => authUsers.id),
+  essayTopicId: text("essay_topic_id")
+    .notNull()
+    .references(() => essayTopics.id),
+  essayText: text("essay_text").notNull(),
+  score: integer("score"),
+  feedback: jsonb("feedback"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/**
  * AI-generated questions, written once and reused. Kept separate from pyqs so we
  * never confuse a model-authored question with a real past-paper question — the
  * distinction matters for anyone later auditing what was actually asked in an exam.
