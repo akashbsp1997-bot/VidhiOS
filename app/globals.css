@@ -126,6 +126,14 @@ textarea.answer-box {
 .stage-pill { font-family: var(--font-mono); font-size: 10px; padding: 3px 7px; border-radius: 999px; white-space: nowrap; background: var(--ivory-2); color: var(--ink-soft); }
 .stage-pill.stage-test { background: #dcebe0; color: var(--forest); }
 
+/* app/plan/page.jsx's day-wise tracker -- distinct from the lesson-stage
+   pills above (learn/test/revise are plan-day TYPES, not a subtopic's
+   teach/grasp/remember/test progress), same pill shape for visual
+   consistency. */
+.day-type-pill { font-family: var(--font-mono); font-size: 10px; padding: 3px 7px; border-radius: 999px; white-space: nowrap; background: var(--ivory-2); color: var(--ink-soft); }
+.day-type-pill.day-type-test { background: #dcebe0; color: var(--forest); }
+.day-type-pill.day-type-revise { background: #f0e6d2; color: var(--brass); }
+
 .example-card, .exercise-card, .mnemonic-card { background: var(--ivory-2); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
 .example-title { font-weight: 700; font-size: 13.5px; margin-bottom: 4px; color: var(--brass); }
 .example-body { font-size: 14px; line-height: 1.5; }

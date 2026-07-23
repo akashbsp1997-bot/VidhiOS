@@ -27,6 +27,7 @@ export default function PapersIndex() {
   const [tiles, setTiles] = useState(null);
   const [onboardingComplete, setOnboardingComplete] = useState(true); // assume true until the fetch says otherwise, so the banner doesn't flash for an already-onboarded student
   const [error, setError] = useState(null);
+  const [today, setToday] = useState(null);
 
   useEffect(() => {
     fetch("/api/papers")
@@ -40,6 +41,16 @@ export default function PapersIndex() {
       })
       .catch((e) => setError(e.message));
   }, []);
+
+  useEffect(() => {
+    if (!onboardingComplete) return;
+    fetch("/api/plan")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.error) setToday(data.days.find((d) => d.day === data.todayDayNumber) ?? null);
+      })
+      .catch(() => {});
+  }, [onboardingComplete]);
 
   if (error) {
     return (
@@ -110,6 +121,37 @@ export default function PapersIndex() {
           <a className="btn btn-primary" href="/onboarding">
             Get started →
           </a>
+        </div>
+      )}
+
+      {today && (
+        <div className="card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <h2 style={{ margin: 0 }}>Today's plan</h2>
+            <a href="/plan" style={{ fontSize: 12.5 }}>
+              Full plan →
+            </a>
+          </div>
+          {today.topics.length === 0 ? (
+            <p className="lede" style={{ marginBottom: 0 }}>
+              Nothing scheduled for today yet.
+            </p>
+          ) : today.type === "test" ? (
+            <p className="lede" style={{ marginBottom: 0 }}>
+              Test day — attempt adaptive practice covering {today.topics.map((t) => t.topicText).join(", ")}.{" "}
+              <a href="/practice">Start practice →</a>
+            </p>
+          ) : (
+            <p className="lede" style={{ marginBottom: 0 }}>
+              {today.type === "revise" ? "Revise: " : "Learn: "}
+              {today.topics.map((t, i) => (
+                <span key={t.id}>
+                  {i > 0 && ", "}
+                  <a href={`/learn/${t.id}`}>{t.topicText}</a>
+                </span>
+              ))}
+            </p>
+          )}
         </div>
       )}
 
