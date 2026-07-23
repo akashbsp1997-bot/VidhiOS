@@ -13,6 +13,15 @@
 //      all at once, so a 20-question full mock can't blow past a serverless
 //      function's time limit the way grading everything in one request
 //      would.
+//
+// POST can call generateQuestion in a loop (see the fallback-fill section
+// below) when a subject's real PYQ bank can't cover `questionCount` --
+// several sequential AI calls, unlike every other AI-calling route in this
+// app, which does exactly one. 120s (not 60s) to give that loop real room;
+// still a real risk for a subject with few/no PYQs (GS1/GS3/GS4 today) on
+// a full 20-question mock, where nearly every question needs generating.
+export const maxDuration = 120;
+
 import { NextResponse } from "next/server";
 import { and, eq, desc } from "drizzle-orm";
 import { db } from "../../../lib/db.js";

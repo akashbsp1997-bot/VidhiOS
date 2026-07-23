@@ -6,6 +6,8 @@
 // the whole test -- never batched server-side, so a 20-question full mock
 // never risks one request exceeding the serverless time limit (same "at
 // most one AI phase per request" discipline as app/api/lesson).
+export const maxDuration = 60;
+
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "../../../../lib/db.js";

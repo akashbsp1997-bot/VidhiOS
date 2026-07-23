@@ -4,6 +4,8 @@
 // call) on first request, cached, and reused for every student after (same
 // pattern as app/api/lesson's Teach content). Never a ready-made essay,
 // just angles/structure to plan from.
+export const maxDuration = 60;
+
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "../../../lib/db.js";

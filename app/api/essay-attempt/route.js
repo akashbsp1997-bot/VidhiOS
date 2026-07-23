@@ -6,6 +6,8 @@
 // descriptive/MCQ/mock-test practice, this never touches `mastery` --
 // Essay is its own paper with its own grading criteria, not something that
 // feeds a GS subtopic's mastery score.
+export const maxDuration = 60;
+
 import { NextResponse } from "next/server";
 import { eq, and, desc } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
