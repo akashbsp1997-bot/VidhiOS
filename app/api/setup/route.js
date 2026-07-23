@@ -3,7 +3,7 @@ export const maxDuration = 60;
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
-import { subtopics, pyqs, sources, subjects } from "../../../db/schema.js";
+import { subtopics, pyqs, sources, subjects, essayTopics } from "../../../db/schema.js";
 import { syllabusSeed } from "../../../db/seed/syllabus.js";
 import { pyqsSeed } from "../../../db/seed/pyqs.js";
 import { sourcesSeed } from "../../../db/seed/sources.js";
@@ -13,6 +13,7 @@ import { gs2PyqsSeed } from "../../../db/seed/gs2-pyqs.js";
 import { gs3SyllabusSeed } from "../../../db/seed/gs3-syllabus.js";
 import { gs1SyllabusSeed } from "../../../db/seed/gs1-syllabus.js";
 import { gs4SyllabusSeed } from "../../../db/seed/gs4-syllabus.js";
+import { essayTopicsSeed } from "../../../db/seed/essay-topics.js";
 
 // syllabusSeed/pyqsSeed (Law Optional) predate the subjectId column and
 // don't carry it on each row (it was backfilled once, directly in the DB,
@@ -104,6 +105,20 @@ export async function GET(request) {
   } catch (err) {
     hadError = true;
     log.push(`FAIL seed:sources -- ${err.message}`);
+  }
+
+  try {
+    await db
+      .insert(essayTopics)
+      .values(essayTopicsSeed)
+      .onConflictDoUpdate({
+        target: essayTopics.id,
+        set: { topicText: sql`excluded.topic_text`, category: sql`excluded.category`, source: sql`excluded.source`, year: sql`excluded.year` },
+      });
+    log.push(`OK  seed:essayTopics (${essayTopicsSeed.length})`);
+  } catch (err) {
+    hadError = true;
+    log.push(`FAIL seed:essayTopics -- ${err.message}`);
   }
 
   return NextResponse.json(
