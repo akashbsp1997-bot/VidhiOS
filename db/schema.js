@@ -227,6 +227,32 @@ export const pyqs = pgTable("pyqs", {
 });
 
 /**
+ * One row per news article pulled into the daily current-affairs digest
+ * (app/api/cron/fetch-current-affairs, opt-in behind NEWSDATA_API_KEY --
+ * see lib/notifications and .env.example). summary/relatedSubtopicIds are
+ * AI-produced from the real article title/description (never invented
+ * content) -- relatedSubtopicIds is a best-effort tag against real syllabus
+ * subtopics, empty when nothing clearly relates. sourceUrl is unique so a
+ * re-fetched article across days is never duplicated.
+ */
+export const currentAffairsItems = pgTable(
+  "current_affairs_items",
+  {
+    id: serial("id").primaryKey(),
+    publishedDate: text("published_date").notNull(), // 'YYYY-MM-DD', the digest day this was fetched into
+    title: text("title").notNull(),
+    summary: text("summary").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    sourceName: text("source_name"),
+    relatedSubtopicIds: text("related_subtopic_ids").array().notNull().default([]),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    sourceUrlUnique: unique("current_affairs_items_source_url_unique").on(table.sourceUrl),
+  })
+);
+
+/**
  * AI-generated questions, written once and reused. Kept separate from pyqs so we
  * never confuse a model-authored question with a real past-paper question — the
  * distinction matters for anyone later auditing what was actually asked in an exam.
@@ -286,6 +312,128 @@ export const attempts = pgTable("attempts", {
   // logic branches on it, mastery/tier updates read/write the same
   // (userId, subtopicId) mastery row regardless of whether this is set.
   moduleId: integer("module_id").references(() => lessonModules.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/**
+ * One row per timed, multi-question mock test (see app/api/mock-tests/*) --
+ * a bundle of several questions completed together as one sitting and
+ * graded as a whole, unlike `attempts` above (always exactly one question).
+ * Answers aren't persisted until grading time (see mockTestQuestions below)
+ * -- the client holds them locally while the student works through the
+ * paper, so an abandoned test just never gets its questions graded rather
+ * than needing separate draft-save plumbing.
+ */
+export const mockTests = pgTable("mock_tests", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => authUsers.id),
+  subjectId: text("subject_id")
+    .notNull()
+    .references(() => subjects.id),
+  size: text("size").notNull(), // 'sectional' | 'full'
+  totalMarks: integer("total_marks").notNull(), // sum of the selected questions' marks
+  durationMinutes: integer("duration_minutes").notNull(),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  submittedAt: timestamp("submitted_at"), // null while still in progress
+  totalScore: integer("total_score"), // sum of round(score/100 * marks) per question; null until finished
+});
+
+/**
+ * One row per question within a mock test, in paper order. Mirrors
+ * `attempts`' per-question shape (questionSource/questionRefId/marks/
+ * answerText/score/feedback) but scoped to one mockTestId instead of being
+ * a standalone practice attempt -- deliberately NOT also written into
+ * `attempts` or read by the adaptive engine, same "separate signal"
+ * principle as MCQ practice (see app/api/mcq/route.js): a mock test is a
+ * self-check simulation, not a mastery-gating input.
+ */
+export const mockTestQuestions = pgTable("mock_test_questions", {
+  id: serial("id").primaryKey(),
+  mockTestId: integer("mock_test_id")
+    .notNull()
+    .references(() => mockTests.id),
+  orderIndex: integer("order_index").notNull(),
+  subtopicId: text("subtopic_id")
+    .notNull()
+    .references(() => subtopics.id),
+  questionSource: text("question_source").notNull(), // 'pyq' | 'model'
+  questionRefId: text("question_ref_id").notNull(),
+  questionText: text("question_text").notNull(),
+  marks: integer("marks").notNull(),
+  answerText: text("answer_text"), // null until the student's grade-question call saves it
+  score: integer("score"), // 0-100; null until graded (finish treats a still-null score as 0 marks earned)
+  feedback: jsonb("feedback"),
+});
+
+/**
+ * Spaced-repetition review state for flashcards (see lib/adaptive/srs.js,
+ * lib/adaptive/flashcards.js). A "card" isn't stored anywhere -- it's
+ * derived fresh on every fetch from content a real Teach/Grasp visit
+ * already generated (lessons.keyProvisions/caseLaw/mnemonics,
+ * lessonModules.keyPoints/mnemonic), so cardId is a deterministic string
+ * (e.g. "lesson:CA2:kp:0") this table's PK anchors review state to, not a
+ * foreign key to a cards table. Simplified SM-2, same algorithm Anki's
+ * predecessor SuperMemo used: easeFactor/intervalDays/repetitions evolve
+ * per review, dueAt is when it should be shown again. No row here at all
+ * means "never reviewed" -- treated as immediately due, same as any other
+ * new card.
+ */
+export const flashcardReviews = pgTable(
+  "flashcard_reviews",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id),
+    cardId: text("card_id").notNull(),
+    subtopicId: text("subtopic_id")
+      .notNull()
+      .references(() => subtopics.id),
+    easeFactor: real("ease_factor").notNull().default(2.5),
+    intervalDays: integer("interval_days").notNull().default(0),
+    repetitions: integer("repetitions").notNull().default(0),
+    dueAt: timestamp("due_at").notNull().defaultNow(),
+    lastReviewedAt: timestamp("last_reviewed_at"),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.cardId] }),
+  })
+);
+
+/**
+ * One row per user -- their own DAF-style background, used to ground
+ * generated interview questions (see interviewSessions below). Entirely
+ * self-declared, same spirit as mastery.notes: nothing here is verified or
+ * cross-checked, it's just context fed into the question generator.
+ */
+export const interviewProfiles = pgTable("interview_profiles", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => authUsers.id),
+  hometown: text("hometown").notNull().default(""),
+  education: text("education").notNull().default(""),
+  workExperience: text("work_experience").notNull().default(""),
+  hobbies: text("hobbies").notNull().default(""),
+  servicePreference: text("service_preference").notNull().default(""),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/**
+ * One row per generated mock interview (Personality Test) question set --
+ * lightweight by design: a real interview is evaluated on demeanor and
+ * spoken delivery, not just content, so this deliberately does NOT attempt
+ * AI grading of a typed answer the way descriptive practice does. `notes`
+ * is the candidate's own post-hoc self-reflection per question (keyed by
+ * array index as a string), not an AI-graded score.
+ */
+export const interviewSessions = pgTable("interview_sessions", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => authUsers.id),
+  questions: jsonb("questions").notNull(), // [{category, question}]
+  notes: jsonb("notes").notNull().default({}), // { [questionIndex]: "self-reflection text" }
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

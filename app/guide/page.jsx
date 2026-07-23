@@ -57,7 +57,9 @@ export default function GuidePage() {
       <p className="lede">
         Your unlocked GS papers, broken down by theme — Polity, Governance, International Relations, and more as
         more GS papers unlock. Where to start, which sources to follow, and what to include in notes, all built from
-        your own tracked data (difficulty, PYQ frequency, sources you've registered, notes already generated).
+        your own tracked data (difficulty, PYQ frequency, sources you've registered, notes already generated).{" "}
+        <a href="/notes/export">Export a printable revision booklet →</a> ·{" "}
+        <a href="/reference">Search your reference sources →</a>
       </p>
 
       {data.themes.length === 0 && (
