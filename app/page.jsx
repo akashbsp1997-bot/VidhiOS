@@ -25,6 +25,7 @@ function groupTiles(tiles) {
 // content today.
 export default function PapersIndex() {
   const [tiles, setTiles] = useState(null);
+  const [onboardingComplete, setOnboardingComplete] = useState(true); // assume true until the fetch says otherwise, so the banner doesn't flash for an already-onboarded student
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -32,7 +33,10 @@ export default function PapersIndex() {
       .then((r) => r.json())
       .then((data) => {
         if (data.error) setError(data.error);
-        else setTiles(data.tiles);
+        else {
+          setTiles(data.tiles);
+          setOnboardingComplete(data.onboardingComplete);
+        }
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -96,6 +100,19 @@ export default function PapersIndex() {
         added. Click a paper to see its subtopics.
       </p>
 
+      {!onboardingComplete && (
+        <div className="card" style={{ borderColor: "var(--brass)" }}>
+          <h2 style={{ marginTop: 0 }}>Set up your 1-year plan</h2>
+          <p className="lede" style={{ marginBottom: 10 }}>
+            Pick 2 GS papers and 1 optional subject to start with — more GS papers unlock automatically as you make
+            progress. Everything else on this page stays locked until you do.
+          </p>
+          <a className="btn btn-primary" href="/onboarding">
+            Get started →
+          </a>
+        </div>
+      )}
+
       <div className="card">
         <a className="btn btn-primary" href="/practice">
           Start adaptive practice →
@@ -120,24 +137,41 @@ export default function PapersIndex() {
                 </div>
               </a>
             )}
-            {items.map((t) => (
-              <a
-                key={`${t.subjectId}-${t.paper}`}
-                className={`paper-tile${t.subtopicCount === 0 ? " coming-soon" : ""}`}
-                href={`/papers/${t.subjectId}/${t.paper}`}
-              >
+            {items.map((t) => {
+              const tileLabel = (
                 <div className="paper-tile-label">
                   {t.label}
                   {t.qualifying && <span className="qualifying-pill">Qualifying</span>}
+                  {t.subjectLocked && <span className="subject-locked-pill">Locked</span>}
                 </div>
-                <div className="paper-tile-meta">
-                  {t.marks ? `${t.marks} marks · ` : ""}
-                  {t.subtopicCount > 0
-                    ? `${t.subtopicCount} subtopic${t.subtopicCount === 1 ? "" : "s"} · ${Math.round((t.avgMasteryScore ?? 0) * 100)}% mastery`
-                    : "Coming soon"}
-                </div>
-              </a>
-            ))}
+              );
+              if (t.subjectLocked) {
+                return (
+                  <div className="paper-tile subject-locked" key={`${t.subjectId}-${t.paper}`}>
+                    {tileLabel}
+                    <div className="paper-tile-meta">
+                      {t.marks ? `${t.marks} marks · ` : ""}
+                      {onboardingComplete ? "Unlocks with more progress" : "Set up your plan to unlock"}
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <a
+                  key={`${t.subjectId}-${t.paper}`}
+                  className={`paper-tile${t.subtopicCount === 0 ? " coming-soon" : ""}`}
+                  href={`/papers/${t.subjectId}/${t.paper}`}
+                >
+                  {tileLabel}
+                  <div className="paper-tile-meta">
+                    {t.marks ? `${t.marks} marks · ` : ""}
+                    {t.subtopicCount > 0
+                      ? `${t.subtopicCount} subtopic${t.subtopicCount === 1 ? "" : "s"} · ${Math.round((t.avgMasteryScore ?? 0) * 100)}% mastery`
+                      : "Coming soon"}
+                  </div>
+                </a>
+              );
+            })}
           </div>
         </div>
       ))}

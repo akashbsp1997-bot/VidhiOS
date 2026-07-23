@@ -49,31 +49,45 @@ export default function OptionalSubjectPicker() {
       ? withContent.reduce((sum, t) => sum + t.subtopicCount * (t.avgMasteryScore ?? 0), 0) /
         withContent.reduce((sum, t) => sum + t.subtopicCount, 0)
       : null;
-    return { ...s, subtopicCount, avgMastery };
+    // Every paper tile for one optional subject shares the same
+    // subjectLocked value (it's a per-subject gate, see /api/papers) --
+    // reading it off the first one is enough.
+    const subjectLocked = papers[0]?.subjectLocked ?? false;
+    return { ...s, subtopicCount, avgMastery, subjectLocked };
   });
 
   return (
     <>
       {backLink}
       <h1>Choose your optional subject</h1>
-      <p className="lede">Pick the optional subject you're preparing — both its papers (VI and VII) open up once you do.</p>
+      <p className="lede">
+        Pick the optional subject you're preparing — both its papers (VI and VII) open up once you do. This choice
+        is fixed once made, matching how the real exam works — you only ever sit one optional.
+        {" "}<a href="/onboarding">Set up your plan</a> if you haven't yet.
+      </p>
 
       <div className="card">
         <div className="paper-tile-grid">
-          {subjects.map((s) => (
-            <a
-              key={s.subjectId}
-              className={`paper-tile${s.subtopicCount === 0 ? " coming-soon" : ""}`}
-              href={`/papers/optional/${s.subjectId}`}
-            >
-              <div className="paper-tile-label">{s.displayName}</div>
-              <div className="paper-tile-meta">
-                {s.subtopicCount > 0
-                  ? `${s.subtopicCount} subtopics · ${Math.round((s.avgMastery ?? 0) * 100)}% mastery`
-                  : "Coming soon"}
+          {subjects.map((s) =>
+            s.subjectLocked ? (
+              <div className="paper-tile subject-locked" key={s.subjectId}>
+                <div className="paper-tile-label">
+                  {s.displayName}
+                  <span className="subject-locked-pill">Locked</span>
+                </div>
+                <div className="paper-tile-meta">Not your chosen optional</div>
               </div>
-            </a>
-          ))}
+            ) : (
+              <a key={s.subjectId} className={`paper-tile${s.subtopicCount === 0 ? " coming-soon" : ""}`} href={`/papers/optional/${s.subjectId}`}>
+                <div className="paper-tile-label">{s.displayName}</div>
+                <div className="paper-tile-meta">
+                  {s.subtopicCount > 0
+                    ? `${s.subtopicCount} subtopics · ${Math.round((s.avgMastery ?? 0) * 100)}% mastery`
+                    : "Coming soon"}
+                </div>
+              </a>
+            )
+          )}
         </div>
       </div>
     </>

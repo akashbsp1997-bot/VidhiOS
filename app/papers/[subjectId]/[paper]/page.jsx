@@ -81,6 +81,25 @@ export default function PaperSubtopicsPage({ params }) {
     </p>
   );
 
+  if (error === "subject_locked") {
+    return (
+      <>
+        {backLink}
+        <h1>{heading}</h1>
+        <div className="card">
+          <h2>Locked</h2>
+          <p className="lede" style={{ marginBottom: 10 }}>
+            This subject isn't unlocked yet. GS papers unlock automatically as you make progress; your optional
+            subject is fixed to the one you chose at setup.
+          </p>
+          <a className="btn btn-primary" href="/onboarding">
+            View your plan →
+          </a>
+        </div>
+      </>
+    );
+  }
+
   if (error) {
     return (
       <>

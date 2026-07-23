@@ -64,7 +64,7 @@ export async function GET(request) {
     const tables = await db.execute(sql`
       select table_name from information_schema.tables
       where table_schema = 'public'
-        and table_name in ('subjects', 'ingest_uploads', 'ingest_items', 'lesson_modules')
+        and table_name in ('subjects', 'ingest_uploads', 'ingest_items', 'lesson_modules', 'subject_unlocks')
     `);
     const tableNames = tables.map((r) => r.table_name);
     return NextResponse.json({
@@ -72,6 +72,7 @@ export async function GET(request) {
       message: "Migrations applied (or already up to date).",
       subjectsTableExists: tableNames.includes("subjects"),
       lessonModulesTableExists: tableNames.includes("lesson_modules"),
+      subjectUnlocksTableExists: tableNames.includes("subject_unlocks"),
       ingestTablesFound: tableNames.filter((n) => n.startsWith("ingest_")),
       newColumnsFound: cols.map((r) => `${r.table_name}.${r.column_name}`),
     });

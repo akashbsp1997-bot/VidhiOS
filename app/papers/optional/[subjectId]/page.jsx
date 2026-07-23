@@ -64,21 +64,31 @@ export default function OptionalSubjectPapers({ params }) {
 
       <div className="card">
         <div className="paper-tile-grid">
-          {papers.map((t) => (
-            <a
-              key={`${t.subjectId}-${t.paper}`}
-              className={`paper-tile${t.subtopicCount === 0 ? " coming-soon" : ""}`}
-              href={`/papers/${t.subjectId}/${t.paper}`}
-            >
-              <div className="paper-tile-label">{t.label}</div>
-              <div className="paper-tile-meta">
-                {t.marks ? `${t.marks} marks · ` : ""}
-                {t.subtopicCount > 0
-                  ? `${t.subtopicCount} subtopic${t.subtopicCount === 1 ? "" : "s"} · ${Math.round((t.avgMasteryScore ?? 0) * 100)}% mastery`
-                  : "Coming soon"}
+          {papers.map((t) =>
+            t.subjectLocked ? (
+              <div className="paper-tile subject-locked" key={`${t.subjectId}-${t.paper}`}>
+                <div className="paper-tile-label">
+                  {t.label}
+                  <span className="subject-locked-pill">Locked</span>
+                </div>
+                <div className="paper-tile-meta">Not your chosen optional</div>
               </div>
-            </a>
-          ))}
+            ) : (
+              <a
+                key={`${t.subjectId}-${t.paper}`}
+                className={`paper-tile${t.subtopicCount === 0 ? " coming-soon" : ""}`}
+                href={`/papers/${t.subjectId}/${t.paper}`}
+              >
+                <div className="paper-tile-label">{t.label}</div>
+                <div className="paper-tile-meta">
+                  {t.marks ? `${t.marks} marks · ` : ""}
+                  {t.subtopicCount > 0
+                    ? `${t.subtopicCount} subtopic${t.subtopicCount === 1 ? "" : "s"} · ${Math.round((t.avgMasteryScore ?? 0) * 100)}% mastery`
+                    : "Coming soon"}
+                </div>
+              </a>
+            )
+          )}
         </div>
       </div>
     </>
