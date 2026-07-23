@@ -19,11 +19,12 @@ export default async function RootLayout({ children }) {
               <b>Vidhi</b>OS <span style={{ fontSize: 13, opacity: 0.7 }}>Adaptive</span>
             </a>
             {userId && (
-              <nav className="toplinks" style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <nav className="toplinks" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 16, rowGap: 8 }}>
                 <a href="/">Dashboard</a>
                 <a href="/plan">Plan</a>
                 <a href="/guide">Guide</a>
                 <a href="/readiness">Readiness</a>
+                <a href="/current-affairs">Current affairs</a>
                 <a href="/practice">Practice</a>
                 <a href="/prelims">Prelims</a>
                 <a href="/mock-tests">Mock tests</a>

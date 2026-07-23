@@ -3,6 +3,14 @@
     {
       "path": "/api/cron/refresh-sources",
       "schedule": "0 3 * * 0"
+    },
+    {
+      "path": "/api/cron/send-reminders",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/fetch-current-affairs",
+      "schedule": "30 1 * * *"
     }
   ]
 }

@@ -227,6 +227,32 @@ export const pyqs = pgTable("pyqs", {
 });
 
 /**
+ * One row per news article pulled into the daily current-affairs digest
+ * (app/api/cron/fetch-current-affairs, opt-in behind NEWSDATA_API_KEY --
+ * see lib/notifications and .env.example). summary/relatedSubtopicIds are
+ * AI-produced from the real article title/description (never invented
+ * content) -- relatedSubtopicIds is a best-effort tag against real syllabus
+ * subtopics, empty when nothing clearly relates. sourceUrl is unique so a
+ * re-fetched article across days is never duplicated.
+ */
+export const currentAffairsItems = pgTable(
+  "current_affairs_items",
+  {
+    id: serial("id").primaryKey(),
+    publishedDate: text("published_date").notNull(), // 'YYYY-MM-DD', the digest day this was fetched into
+    title: text("title").notNull(),
+    summary: text("summary").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    sourceName: text("source_name"),
+    relatedSubtopicIds: text("related_subtopic_ids").array().notNull().default([]),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    sourceUrlUnique: unique("current_affairs_items_source_url_unique").on(table.sourceUrl),
+  })
+);
+
+/**
  * AI-generated questions, written once and reused. Kept separate from pyqs so we
  * never confuse a model-authored question with a real past-paper question — the
  * distinction matters for anyone later auditing what was actually asked in an exam.
