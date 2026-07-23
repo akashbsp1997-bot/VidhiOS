@@ -272,14 +272,26 @@ export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
           node: lesson.perspectives.map((p, i) => (
             <div className="example-card" key={i}>
               <div className="example-title">{p.angle}</div>
-              <div className="example-body">{p.explanation}</div>
+              <ul className="example-body" style={{ margin: 0, paddingLeft: 18 }}>
+                {bulletLines(p.explanation).map((line, j) => (
+                  <li key={j}>{line}</li>
+                ))}
+              </ul>
             </div>
           )),
         },
         lesson.answerFramework && {
           key: "framework",
           label: "How to answer this",
-          node: <p style={{ fontSize: 14, lineHeight: 1.6 }}>{lesson.answerFramework}</p>,
+          node: (
+            <ul style={{ paddingLeft: 20, fontSize: 14, lineHeight: 1.7 }}>
+              {bulletLines(lesson.answerFramework).map((line, i) => (
+                <li key={i} style={{ marginBottom: 6 }}>
+                  {line}
+                </li>
+              ))}
+            </ul>
+          ),
         },
       ].filter(Boolean)
     : [];
