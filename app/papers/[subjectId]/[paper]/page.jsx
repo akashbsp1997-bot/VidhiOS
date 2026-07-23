@@ -156,6 +156,32 @@ export default function PaperSubtopicsPage({ params }) {
     );
   }
 
+  // CSAT quant is MCQ-only (db/schema.js's subjects.answerFormat) -- it has
+  // no lessons/lesson_modules content and never goes through Teach/Grasp/
+  // Remember/Test, so the generic subtopic list below (which links every
+  // unlocked row to /learn/{id}) would send a click into a broken/
+  // meaningless AI-generation flow for a topic this subject was never meant
+  // to have. Point at the actual game instead of trying to force-fit the
+  // generic list.
+  if (subjectId === "prelims-csat") {
+    return (
+      <>
+        {backLink}
+        <h1>{heading}</h1>
+        <p className="lede">
+          {subtopicsData.length} topics — Number System, Percentage, Ratio, Time & Work, Data Interpretation and
+          more (Class X level). Played as a puzzle-chain game rather than a Teach/Test flow: real MCQ practice,
+          just no per-topic browsing here.
+        </p>
+        <div className="card">
+          <a className="btn btn-primary" href="/quant">
+            Play the Quant Puzzle Chain →
+          </a>
+        </div>
+      </>
+    );
+  }
+
   const overallMastery = subtopicsData.reduce((sum, s) => sum + s.masteryScore, 0) / subtopicsData.length;
 
   // Only unlocked subtopics plus a small "preview" window of upcoming
