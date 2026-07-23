@@ -317,6 +317,17 @@ export const mastery = pgTable(
     // elsewhere in the subtopic could already satisfy a pure mastery-score
     // check before this specific module was ever attempted.
     moduleProgress: jsonb("module_progress").notNull().default({}),
+    // Personal, self-declared tracking -- deliberately separate from the
+    // AI-graded masteryScore/stage/moduleProgress above, never read by the
+    // adaptive engine or the mastery-gating logic (lib/adaptive/unlocks.js)
+    // and never auto-updated by anything in this app. A student who read a
+    // topic from their own outside sources, or just wants a personal
+    // checklist independent of AI-graded practice, can mark it here without
+    // that affecting what unlocks next -- keeps "I consider this covered"
+    // and "the AI has verified I've mastered this" as two honestly distinct
+    // signals instead of conflating them.
+    notes: text("notes").notNull().default(""),
+    selfStatus: text("self_status").notNull().default("not-started"), // 'not-started' | 'in-progress' | 'done'
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId, table.subtopicId] }),

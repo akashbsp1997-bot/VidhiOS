@@ -62,6 +62,9 @@ export async function GET(request) {
       currentTier: masteryBySubtopic[s.id]?.currentTier ?? 1,
       attemptsCount: masteryBySubtopic[s.id]?.attemptsCount ?? 0,
       stage: masteryBySubtopic[s.id]?.stage ?? "teach",
+      // Personal, self-declared -- see db/schema.js's mastery.selfStatus
+      // comment. Purely informational here, never affects locking/ordering.
+      selfStatus: masteryBySubtopic[s.id]?.selfStatus ?? "not-started",
       sourceCount: sourceCountBySubtopic[s.id] ?? 0,
       difficultyScore: computeDifficultyScore(sourcesBySubtopic[s.id], pyqMarksBySubtopic[s.id]),
     }));

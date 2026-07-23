@@ -4,6 +4,7 @@ import { useEffect, useState, use } from "react";
 import { findPaperTile, isOptionalTile, isCompulsoryLanguageTile } from "../../../../lib/subjects/papers.js";
 
 const STAGE_LABEL = { teach: "Teach", grasp: "Grasp", remember: "Remember", test: "Test" };
+const SELF_STATUS_LABEL = { "not-started": "Not started", "in-progress": "In progress", done: "Done" };
 
 // How many upcoming locked subtopics stay visible (fading out) beyond the
 // unlocked frontier, and how opaque each one is -- position 0 (right after
@@ -142,6 +143,10 @@ export default function PaperSubtopicsPage({ params }) {
           const opacity = fadeStep >= 0 ? FADE_OPACITIES[Math.min(fadeStep, FADE_OPACITIES.length - 1)] : undefined;
           return (
             <div className={`subtopic-row${s.locked ? " locked" : ""}`} style={opacity != null ? { opacity } : undefined} key={s.id}>
+              <span
+                className={`self-status-dot self-status-${s.selfStatus}`}
+                title={`Your own status: ${SELF_STATUS_LABEL[s.selfStatus] ?? "Not started"} (separate from AI-graded mastery)`}
+              />
               <span className="subtopic-code">{s.id}</span>
               <span className="subtopic-text">
                 {s.locked ? <span>{s.topicText}</span> : <a href={`/learn/${s.id}`}>{s.topicText}</a>}

@@ -55,7 +55,9 @@ export async function GET(request) {
           (table_name = 'lesson_modules' and column_name = 'visual_image_data_uri') or
           (table_name = 'mastery' and column_name = 'module_progress') or
           (table_name = 'sources' and column_name = 'ncert_level') or
-          (table_name = 'sources' and column_name = 'ncert_class')
+          (table_name = 'sources' and column_name = 'ncert_class') or
+          (table_name = 'mastery' and column_name = 'notes') or
+          (table_name = 'mastery' and column_name = 'self_status')
         )
       order by table_name, column_name
     `);
