@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import ModelAnswerPanel from "./ModelAnswerPanel.jsx";
 
 const SOURCE_LABEL = { pyq: "Real PYQ", model: "Model question", generate: "Generating…" };
 
@@ -131,6 +132,7 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
         )}
 
         <div className="question-text">{question.questionText}</div>
+        <ModelAnswerPanel subtopicId={question.subtopicId} questionSource={question.questionSource} questionRefId={question.questionRefId} />
 
         {!feedback && (
           <>

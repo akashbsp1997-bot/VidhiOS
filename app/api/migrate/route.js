@@ -66,7 +66,7 @@ export async function GET(request) {
     const tables = await db.execute(sql`
       select table_name from information_schema.tables
       where table_schema = 'public'
-        and table_name in ('subjects', 'ingest_uploads', 'ingest_items', 'lesson_modules', 'subject_unlocks', 'mock_tests', 'mock_test_questions', 'flashcard_reviews', 'current_affairs_items', 'interview_profiles', 'interview_sessions', 'essay_topics', 'essay_guides', 'essay_attempts')
+        and table_name in ('subjects', 'ingest_uploads', 'ingest_items', 'lesson_modules', 'subject_unlocks', 'mock_tests', 'mock_test_questions', 'flashcard_reviews', 'current_affairs_items', 'interview_profiles', 'interview_sessions', 'essay_topics', 'essay_guides', 'essay_attempts', 'question_model_answers')
     `);
     const tableNames = tables.map((r) => r.table_name);
     return NextResponse.json({
@@ -80,6 +80,7 @@ export async function GET(request) {
       currentAffairsTableExists: tableNames.includes("current_affairs_items"),
       interviewTablesExist: tableNames.includes("interview_profiles") && tableNames.includes("interview_sessions"),
       essayTablesExist: tableNames.includes("essay_topics") && tableNames.includes("essay_guides") && tableNames.includes("essay_attempts"),
+      questionModelAnswersTableExists: tableNames.includes("question_model_answers"),
       ingestTablesFound: tableNames.filter((n) => n.startsWith("ingest_")),
       newColumnsFound: cols.map((r) => `${r.table_name}.${r.column_name}`),
     });

@@ -253,6 +253,31 @@ export const currentAffairsItems = pgTable(
 );
 
 /**
+ * A cached, AI-generated model answer for one question (PYQ or
+ * AI-generated), keyed by (questionSource, questionRefId) rather than by
+ * user -- both `pyqs` and `model_questions` rows are already shared/global
+ * entities, so a model answer generated for one student's practice session
+ * is reused by every student who later meets the exact same question, same
+ * "generate once, cache forever" principle as `lessons`/`essay_guides`.
+ * This is what makes /api/model-answer a real quota-saving lever, not just
+ * a UX feature: it converts a per-student cost (full AI grading on every
+ * submission) into a per-question one for the self-check path.
+ */
+export const questionModelAnswers = pgTable(
+  "question_model_answers",
+  {
+    questionSource: text("question_source").notNull(), // 'pyq' | 'model'
+    questionRefId: text("question_ref_id").notNull(),
+    modelAnswer: text("model_answer").notNull(),
+    keyPoints: jsonb("key_points").notNull().default([]),
+    generatedAt: timestamp("generated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.questionSource, table.questionRefId] }),
+  })
+);
+
+/**
  * The Essay paper's topic bank -- deliberately its own table, not shoehorned
  * into `subtopics`. An essay topic isn't a syllabus concept to Teach/Grasp/
  * Remember/Test through; it's a single prompt a student writes one full
