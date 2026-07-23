@@ -5,6 +5,8 @@ import { db } from "../../../lib/db.js";
 import { subtopics, mastery, sources, subjects, pyqs } from "../../../db/schema.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { computeDifficultyScore, orderSubtopicsWithinPaper, computeSubtopicLocks } from "../../../lib/adaptive/unlocks.js";
+import { isGatedCategory } from "../../../lib/adaptive/subjectUnlocks.js";
+import { loadUnlockedSubjectIds } from "../../../lib/adaptive/subjectUnlockState.js";
 
 export async function GET(request) {
   const userId = await getSessionUserId();
@@ -20,7 +22,27 @@ export async function GET(request) {
   const filterPaper = searchParams.get("paper") ? Number(searchParams.get("paper")) : null;
 
   try {
+    const allSubjects = await db.select().from(subjects);
+    const subjectById = Object.fromEntries(allSubjects.map((s) => [s.id, s]));
+    const { unlockedGsIds, optionalSubjectId } = await loadUnlockedSubjectIds(userId);
+    const subjectUnlockedForUser = (subjectId) => {
+      const category = subjectById[subjectId]?.category;
+      if (!isGatedCategory(category)) return true;
+      return unlockedGsIds.includes(subjectId) || optionalSubjectId === subjectId;
+    };
+
+    // A direct request for one specific, still-subject-locked paper (the
+    // per-paper drill-down page) 403s explicitly rather than silently
+    // returning an empty list -- the caller needs to know WHY there's
+    // nothing to show. The unfiltered "everything" shape instead just
+    // excludes subject-locked subtopics below (a general listing has no
+    // single subject to complain about).
+    if (filterSubjectId && !subjectUnlockedForUser(filterSubjectId)) {
+      return NextResponse.json({ error: "subject_locked" }, { status: 403 });
+    }
+
     let allSubtopics = await db.select().from(subtopics);
+    allSubtopics = allSubtopics.filter((s) => subjectUnlockedForUser(s.subjectId));
     if (filterSubjectId) allSubtopics = allSubtopics.filter((s) => s.subjectId === filterSubjectId);
     if (filterPaper != null) allSubtopics = allSubtopics.filter((s) => s.paper === filterPaper);
     const allMastery = await db.select().from(mastery).where(eq(mastery.userId, userId));
@@ -32,11 +54,9 @@ export async function GET(request) {
       .select({ subtopicId: sources.subtopicId, sourceTier: sources.sourceTier, ncertLevel: sources.ncertLevel, ncertClass: sources.ncertClass })
       .from(sources);
     const allPyqs = await db.select({ topics: pyqs.topics, marks: pyqs.marks }).from(pyqs);
-    const allSubjects = await db.select().from(subjects);
 
     const masteryBySubtopic = Object.fromEntries(allMastery.map((m) => [m.subtopicId, m]));
     const sourceCountBySubtopic = Object.fromEntries(sourceCounts.map((s) => [s.subtopicId, s.count]));
-    const subjectById = Object.fromEntries(allSubjects.map((s) => [s.id, s]));
 
     const sourcesBySubtopic = {}; // subtopicId -> [{sourceTier, ncertLevel, ncertClass}]
     for (const row of sourceRows) {

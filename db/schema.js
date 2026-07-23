@@ -335,6 +335,37 @@ export const mastery = pgTable(
 );
 
 /**
+ * A THIRD, higher-level gate above subtopic/module gating (lib/adaptive/
+ * unlocks.js): which whole GS papers and which single optional subject a
+ * student can even see subtopics for at all. Row presence = unlocked, for a
+ * (userId, subjectId) pair -- only ever written to for a "gated" subject
+ * (category 'gs' or 'optional', see lib/adaptive/subjectUnlocks.js), never
+ * for prelims/essay/qualifying, which stay accessible per the existing
+ * subtopic-level gating alone. A student picks 2 GS subjects + 1 optional at
+ * onboarding (3 rows inserted at once); more GS subjects unlock over time --
+ * see maybeUnlockNextGsSubject in lib/adaptive/subjectUnlockState.js. The
+ * optional choice is NOT grown the same way: a real UPSC candidate only ever
+ * sits one optional paper, so exactly one optional row ever exists per user
+ * (changeable later, but that's a deliberate settings action, not part of
+ * the automatic unlock progression).
+ */
+export const subjectUnlocks = pgTable(
+  "subject_unlocks",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id),
+    subjectId: text("subject_id")
+      .notNull()
+      .references(() => subjects.id),
+    unlockedAt: timestamp("unlocked_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.subjectId] }),
+  })
+);
+
+/**
  * Populated in three lazy phases, not all at once -- see lib/ai/generateLesson.js
  * and app/api/lesson/route.js. "core" (teachContent/keyProvisions/caseLaw) is
  * generated on first Teach visit and always present once a row exists.

@@ -19,7 +19,7 @@ export const maxDuration = 90;
 import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
-import { subtopics, mastery, pyqs, modelQuestions, attempts, sources, lessonModules } from "../../../db/schema.js";
+import { subtopics, mastery, pyqs, modelQuestions, attempts, sources, lessonModules, subjects } from "../../../db/schema.js";
 import { chooseSubtopic, chooseQuestionPlan, updateMastery, nextTier, tierEscalationBlockedInfo, pushRecentScore } from "../../../lib/adaptive/engine.js";
 import { gradeAnswer } from "../../../lib/ai/grade.js";
 import { generateQuestion } from "../../../lib/ai/generateQuestion.js";
@@ -28,6 +28,8 @@ import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 import { loadPaperLockMap } from "../../../lib/adaptive/lockState.js";
 import { computeModuleLocks, isStageUnlocked } from "../../../lib/adaptive/unlocks.js";
+import { isSubjectUnlocked, loadUnlockedSubjectIds } from "../../../lib/adaptive/subjectUnlockState.js";
+import { isGatedCategory } from "../../../lib/adaptive/subjectUnlocks.js";
 
 // A module-level Test (components/ModuleTestPanel.jsx) always wants exactly
 // its one question for a known subtopic+module, never the adaptive engine's
@@ -52,6 +54,10 @@ async function handleModuleQuestion(userId, subtopicId, moduleId, { force = fals
   const moduleRow = moduleRows[0];
   if (!moduleRow || moduleRow.subtopicId !== subtopicId) {
     return NextResponse.json({ error: `Unknown module ${moduleId} for subtopic ${subtopicId}` }, { status: 404 });
+  }
+
+  if (!(await isSubjectUnlocked(userId, subtopicRow.subjectId))) {
+    return NextResponse.json({ error: "subject_locked" }, { status: 403 });
   }
 
   const lockMap = await loadPaperLockMap(userId, subtopicRow.subjectId, subtopicRow.paper);
@@ -181,10 +187,15 @@ export async function GET(request) {
 
     // Direct-URL bypass check (e.g. /practice/{lockedSubtopicId}) -- a
     // locked subtopic must 403 here even though nothing in the UI would
-    // normally link to it.
+    // normally link to it. Subject-level gate checked first (cheaper, and
+    // logically prior -- a subtopic in a not-yet-unlocked subject has no
+    // meaningful paper-lock state to report).
     if (forcedSubtopicId) {
       const forcedRow = allSubtopics.find((s) => s.id === forcedSubtopicId);
       if (forcedRow) {
+        if (!(await isSubjectUnlocked(userId, forcedRow.subjectId))) {
+          return NextResponse.json({ error: "subject_locked" }, { status: 403 });
+        }
         const lockMap = await loadPaperLockMap(userId, forcedRow.subjectId, forcedRow.paper);
         if (lockMap.get(forcedSubtopicId)?.locked) {
           return NextResponse.json({ error: "locked", ...lockMap.get(forcedSubtopicId) }, { status: 403 });
@@ -193,12 +204,24 @@ export async function GET(request) {
     }
 
     // No forced subtopic: the adaptive lottery must never land on a locked
-    // one, so filter down to unlocked subtopics first, one loadPaperLockMap
-    // call per (subjectId, paper) group actually present.
+    // subtopic OR a subtopic whose whole subject isn't unlocked yet. Subject
+    // gate first (one query for all this user's unlocked ids + one for
+    // every subject's category, not per-subtopic), then the existing
+    // per-(subjectId,paper) paper-lock pass.
     let eligibleSubtopics = allSubtopics;
     if (!forcedSubtopicId) {
+      const { unlockedGsIds, optionalSubjectId } = await loadUnlockedSubjectIds(userId);
+      const allSubjectRows = await db.select({ id: subjects.id, category: subjects.category }).from(subjects);
+      const categoryBySubject = Object.fromEntries(allSubjectRows.map((s) => [s.id, s.category]));
+      const subjectUnlockedForUser = (subjectId) => {
+        const category = categoryBySubject[subjectId];
+        if (!isGatedCategory(category)) return true;
+        return unlockedGsIds.includes(subjectId) || optionalSubjectId === subjectId;
+      };
+
       const groups = {};
       for (const s of allSubtopics) {
+        if (!subjectUnlockedForUser(s.subjectId)) continue;
         const key = `${s.subjectId}::${s.paper}`;
         (groups[key] ??= []).push(s);
       }
@@ -210,7 +233,7 @@ export async function GET(request) {
           if (info.locked) lockedIds.add(id);
         }
       }
-      eligibleSubtopics = allSubtopics.filter((s) => !lockedIds.has(s.id));
+      eligibleSubtopics = allSubtopics.filter((s) => subjectUnlockedForUser(s.subjectId) && !lockedIds.has(s.id));
     }
 
     const subtopicStates = eligibleSubtopics.map((s) => ({
@@ -327,6 +350,10 @@ export async function POST(request) {
     const subtopicRows = await db.select().from(subtopics).where(eq(subtopics.id, subtopicId));
     const subtopicRow = subtopicRows[0];
     if (!subtopicRow) return NextResponse.json({ error: "Unknown subtopic" }, { status: 404 });
+
+    if (!(await isSubjectUnlocked(userId, subtopicRow.subjectId))) {
+      return NextResponse.json({ error: "subject_locked" }, { status: 403 });
+    }
 
     // Grading uses a more specific subtopicText for a module-level attempt --
     // gradeAnswer's own signature is unchanged, this is just a richer string

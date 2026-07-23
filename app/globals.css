@@ -174,3 +174,11 @@ textarea.answer-box {
 .paper-tile.coming-soon { opacity: 0.6; }
 .paper-tile-label { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
 .paper-tile-meta { font-size: 11.5px; color: var(--ink-soft); }
+
+/* A subject-locked tile is a DIFFERENT state from "coming soon" -- the
+   content exists, the student just hasn't unlocked this subject yet (see
+   lib/adaptive/subjectUnlocks.js). Rendered as a non-clickable div rather
+   than an <a>, with its own pill/message so it doesn't read the same as an
+   empty paper. */
+.paper-tile.subject-locked { opacity: 0.55; cursor: default; }
+.subject-locked-pill { display: inline-block; font-family: var(--font-mono); font-size: 9.5px; padding: 1px 6px; border-radius: 999px; background: #f0dfda; color: var(--maroon); margin-left: 6px; vertical-align: middle; }
