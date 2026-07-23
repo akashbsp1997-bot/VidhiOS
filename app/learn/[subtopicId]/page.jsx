@@ -4,6 +4,7 @@ import { useEffect, useState, use } from "react";
 import { useSearchParams } from "next/navigation";
 import LegacyLearnFlow from "../../../components/LegacyLearnFlow.jsx";
 import ModuleLearnFlow from "../../../components/ModuleLearnFlow.jsx";
+import SubtopicNotes from "../../../components/SubtopicNotes.jsx";
 
 async function safeFetchJson(url, options) {
   const res = await fetch(url, options);
@@ -81,17 +82,25 @@ export default function LearnPage({ params }) {
   if (dispatch === null) return <div className="loading">{"Preparing this lesson… (first visit generates it, a few seconds)"}</div>;
 
   if (dispatch === "legacy") {
-    return <LegacyLearnFlow key={subtopicId} subtopicId={subtopicId} onUpgrade={handleUpgrade} upgrading={upgrading} />;
+    return (
+      <>
+        <LegacyLearnFlow key={subtopicId} subtopicId={subtopicId} onUpgrade={handleUpgrade} upgrading={upgrading} />
+        <SubtopicNotes key={`notes-${subtopicId}`} subtopicId={subtopicId} />
+      </>
+    );
   }
 
   return (
-    <ModuleLearnFlow
-      key={subtopicId}
-      subtopicId={subtopicId}
-      subjectDisplayName={initialData.subjectDisplayName}
-      subtopicText={initialData.subtopicText}
-      initialData={initialData}
-      initialModuleIndex={initialModuleIndex}
-    />
+    <>
+      <ModuleLearnFlow
+        key={subtopicId}
+        subtopicId={subtopicId}
+        subjectDisplayName={initialData.subjectDisplayName}
+        subtopicText={initialData.subtopicText}
+        initialData={initialData}
+        initialModuleIndex={initialModuleIndex}
+      />
+      <SubtopicNotes key={`notes-${subtopicId}`} subtopicId={subtopicId} />
+    </>
   );
 }

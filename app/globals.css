@@ -66,7 +66,7 @@ p.lede { color: var(--ink-soft); margin: 0 0 20px; font-size: 14.5px; }
 
 .subtopic-row {
   display: grid;
-  grid-template-columns: 44px 1fr auto auto auto;
+  grid-template-columns: 13px 44px 1fr auto auto auto;
   align-items: center;
   gap: 10px;
   padding: 12px 0;
@@ -154,6 +154,13 @@ textarea.answer-box {
 
 .subtopic-row.locked { opacity: 0.55; }
 .locked-pill { display: inline-block; font-family: var(--font-mono); font-size: 10.5px; padding: 2px 7px; border-radius: 999px; background: #f0dfda; color: var(--maroon); }
+
+/* Personal self-status dot (see db/schema.js's mastery.selfStatus) --
+   deliberately plain/small, distinct from the tier-pill/stage-pill/bar
+   trio, which are all AI-graded signals. */
+.self-status-dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--ink-soft); background: transparent; justify-self: center; }
+.self-status-dot.self-status-in-progress { border-color: var(--brass); background: linear-gradient(90deg, var(--brass) 50%, transparent 50%); }
+.self-status-dot.self-status-done { border-color: var(--forest); background: var(--forest); }
 .qualifying-pill { display: inline-block; font-family: var(--font-mono); font-size: 9.5px; padding: 1px 6px; border-radius: 999px; background: var(--ivory-2); color: var(--ink-soft); margin-left: 6px; vertical-align: middle; }
 
 .segmented { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
