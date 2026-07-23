@@ -290,6 +290,58 @@ export const attempts = pgTable("attempts", {
 });
 
 /**
+ * One row per timed, multi-question mock test (see app/api/mock-tests/*) --
+ * a bundle of several questions completed together as one sitting and
+ * graded as a whole, unlike `attempts` above (always exactly one question).
+ * Answers aren't persisted until grading time (see mockTestQuestions below)
+ * -- the client holds them locally while the student works through the
+ * paper, so an abandoned test just never gets its questions graded rather
+ * than needing separate draft-save plumbing.
+ */
+export const mockTests = pgTable("mock_tests", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => authUsers.id),
+  subjectId: text("subject_id")
+    .notNull()
+    .references(() => subjects.id),
+  size: text("size").notNull(), // 'sectional' | 'full'
+  totalMarks: integer("total_marks").notNull(), // sum of the selected questions' marks
+  durationMinutes: integer("duration_minutes").notNull(),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  submittedAt: timestamp("submitted_at"), // null while still in progress
+  totalScore: integer("total_score"), // sum of round(score/100 * marks) per question; null until finished
+});
+
+/**
+ * One row per question within a mock test, in paper order. Mirrors
+ * `attempts`' per-question shape (questionSource/questionRefId/marks/
+ * answerText/score/feedback) but scoped to one mockTestId instead of being
+ * a standalone practice attempt -- deliberately NOT also written into
+ * `attempts` or read by the adaptive engine, same "separate signal"
+ * principle as MCQ practice (see app/api/mcq/route.js): a mock test is a
+ * self-check simulation, not a mastery-gating input.
+ */
+export const mockTestQuestions = pgTable("mock_test_questions", {
+  id: serial("id").primaryKey(),
+  mockTestId: integer("mock_test_id")
+    .notNull()
+    .references(() => mockTests.id),
+  orderIndex: integer("order_index").notNull(),
+  subtopicId: text("subtopic_id")
+    .notNull()
+    .references(() => subtopics.id),
+  questionSource: text("question_source").notNull(), // 'pyq' | 'model'
+  questionRefId: text("question_ref_id").notNull(),
+  questionText: text("question_text").notNull(),
+  marks: integer("marks").notNull(),
+  answerText: text("answer_text"), // null until the student's grade-question call saves it
+  score: integer("score"), // 0-100; null until graded (finish treats a still-null score as 0 marks earned)
+  feedback: jsonb("feedback"),
+});
+
+/**
  * One row per (user, subtopic): the running mastery estimate the adaptive
  * engine both reads and updates. See lib/adaptive/engine.js for the update
  * rule.
