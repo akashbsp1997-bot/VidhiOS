@@ -402,6 +402,42 @@ export const flashcardReviews = pgTable(
 );
 
 /**
+ * One row per user -- their own DAF-style background, used to ground
+ * generated interview questions (see interviewSessions below). Entirely
+ * self-declared, same spirit as mastery.notes: nothing here is verified or
+ * cross-checked, it's just context fed into the question generator.
+ */
+export const interviewProfiles = pgTable("interview_profiles", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => authUsers.id),
+  hometown: text("hometown").notNull().default(""),
+  education: text("education").notNull().default(""),
+  workExperience: text("work_experience").notNull().default(""),
+  hobbies: text("hobbies").notNull().default(""),
+  servicePreference: text("service_preference").notNull().default(""),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/**
+ * One row per generated mock interview (Personality Test) question set --
+ * lightweight by design: a real interview is evaluated on demeanor and
+ * spoken delivery, not just content, so this deliberately does NOT attempt
+ * AI grading of a typed answer the way descriptive practice does. `notes`
+ * is the candidate's own post-hoc self-reflection per question (keyed by
+ * array index as a string), not an AI-graded score.
+ */
+export const interviewSessions = pgTable("interview_sessions", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => authUsers.id),
+  questions: jsonb("questions").notNull(), // [{category, question}]
+  notes: jsonb("notes").notNull().default({}), // { [questionIndex]: "self-reflection text" }
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/**
  * One row per (user, subtopic): the running mastery estimate the adaptive
  * engine both reads and updates. See lib/adaptive/engine.js for the update
  * rule.
