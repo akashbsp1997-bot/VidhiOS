@@ -245,6 +245,17 @@ export const modelQuestions = pgTable("model_questions", {
   // find/reuse its one cached question via WHERE moduleId = X, without
   // disturbing the subtopic-wide pool this column defaults to (null) for.
   moduleId: integer("module_id").references(() => lessonModules.id),
+  // Prelims MCQ practice mode (app/api/mcq/route.js) reuses this same table
+  // rather than a parallel one -- it's still "one cached AI-generated
+  // question per subtopic," just a different shape and a deterministic
+  // grading path instead of an AI grading call. format/difficultyTier/marks
+  // above stay meaningful for 'descriptive' rows exactly as before;
+  // options/correctIndex/explanation are null for those and only set for
+  // format:'mcq'.
+  format: text("format").notNull().default("descriptive"), // 'descriptive' | 'mcq'
+  options: jsonb("options"), // ["...", "...", "...", "..."], set only for format:'mcq'
+  correctIndex: integer("correct_index"), // 0-3, set only for format:'mcq'
+  explanation: text("explanation"), // set only for format:'mcq'
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -262,7 +273,7 @@ export const attempts = pgTable("attempts", {
   subtopicId: text("subtopic_id")
     .notNull()
     .references(() => subtopics.id),
-  questionSource: text("question_source").notNull(), // 'pyq' | 'model'
+  questionSource: text("question_source").notNull(), // 'pyq' | 'model' | 'mcq' (see app/api/mcq/route.js)
   questionRefId: text("question_ref_id").notNull(), // pyqs.id or model_questions.id (as text)
   questionTextSnapshot: text("question_text_snapshot").notNull(), // self-contained even if the question later changes
   difficultyTier: integer("difficulty_tier").notNull(),
