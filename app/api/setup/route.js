@@ -10,6 +10,7 @@ import { sourcesSeed } from "../../../db/seed/sources.js";
 import { subjectsSeed } from "../../../db/seed/subjects.js";
 import { gs2SyllabusSeed } from "../../../db/seed/gs2-syllabus.js";
 import { gs2PyqsSeed } from "../../../db/seed/gs2-pyqs.js";
+import { politicalSciencePyqsSeed } from "../../../db/seed/political-science-pyqs.js";
 import { gs3SyllabusSeed } from "../../../db/seed/gs3-syllabus.js";
 import { gs1SyllabusSeed } from "../../../db/seed/gs1-syllabus.js";
 import { gs4SyllabusSeed } from "../../../db/seed/gs4-syllabus.js";
@@ -34,6 +35,7 @@ const allSubtopicsSeed = [
 const allPyqsSeed = [
   ...pyqsSeed.map((p) => ({ ...p, subjectId: "law-optional" })),
   ...gs2PyqsSeed,
+  ...politicalSciencePyqsSeed,
 ];
 const allSourcesSeed = [...sourcesSeed, ...ncertSourcesSeed];
 
