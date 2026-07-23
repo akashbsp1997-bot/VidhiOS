@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ModelAnswerPanel from "./ModelAnswerPanel.jsx";
 
 // Same convention as components/PracticeSession.jsx's SOURCE_LABEL.
 const SOURCE_LABEL = { pyq: "Real PYQ", model: "Model question" };
@@ -107,6 +108,7 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
         {moduleTitle} · {question.marks} marks · {SOURCE_LABEL[question.questionSource] || question.questionSource}
       </div>
       <div className="question-text">{question.questionText}</div>
+      <ModelAnswerPanel subtopicId={subtopicId} questionSource={question.questionSource} questionRefId={question.questionRefId} />
 
       {!feedback && (
         <>

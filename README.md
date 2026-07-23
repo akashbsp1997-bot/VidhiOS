@@ -123,9 +123,12 @@ middleman gate entirely.
 Google's free tier has its own daily and per-minute quotas (they vary by
 model and change without notice — check
 https://ai.google.dev/gemini-api/docs/rate-limits for current numbers rather
-than trusting a number here). Every call has a 45s client-side timeout and
-retries a transient rate limit or 5xx up to 4 times with exponential backoff
-(2s/4s/8s/15s, ~29s total — see `lib/ai/client.js`); a non-transient **daily
+than trusting a number here). Every call has a 25s client-side timeout —
+short enough that, on a route with GROQ_API_KEY configured, a Gemini timeout
+still leaves real room for the Groq fallback to run before the route's own
+serverless time limit hits — and retries a transient rate limit or 5xx up
+to 4 times with exponential backoff (2s/4s/8s/15s, ~29s total — see
+`lib/ai/client.js`); a non-transient **daily
 quota exhaustion** fails fast with a clear "today's free quota is used up,
 try later or enable billing" error instead of retrying pointlessly —
 surfaced to the student wherever that call happens (grading, question

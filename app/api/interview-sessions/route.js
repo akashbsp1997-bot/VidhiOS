@@ -6,6 +6,8 @@
 //      in the candidate's saved DAF-style profile, their chosen optional
 //      subject, and (if the opt-in current-affairs digest has data) a
 //      handful of recent headlines.
+export const maxDuration = 60;
+
 import { NextResponse } from "next/server";
 import { eq, desc } from "drizzle-orm";
 import { db } from "../../../lib/db.js";

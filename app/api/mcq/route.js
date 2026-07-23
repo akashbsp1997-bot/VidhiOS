@@ -14,6 +14,8 @@
 //      independently (see stats below, computed on the fly from `attempts`
 //      rather than a new running counter) so it can never distort the
 //      descriptive-mastery-gated subject/subtopic/module unlock system.
+export const maxDuration = 60;
+
 import { NextResponse } from "next/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
