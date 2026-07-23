@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import LegacyLearnFlow from "../../../components/LegacyLearnFlow.jsx";
 import ModuleLearnFlow from "../../../components/ModuleLearnFlow.jsx";
 import SubtopicNotes from "../../../components/SubtopicNotes.jsx";
+import LockdownNotice from "../../../components/LockdownNotice.jsx";
 
 async function safeFetchJson(url, options) {
   const res = await fetch(url, options);
@@ -37,14 +38,20 @@ export default function LearnPage({ params }) {
   const [dispatch, setDispatch] = useState(null); // "legacy" | "module" | null (deciding)
   const [initialData, setInitialData] = useState(null);
   const [error, setError] = useState(null);
+  const [lockdown, setLockdown] = useState(null);
   const [upgrading, setUpgrading] = useState(false);
 
   function decide(upgrade = false) {
     setError(null);
+    setLockdown(null);
     if (!upgrade) setDispatch(null);
     const url = `/api/module-lesson?subtopicId=${encodeURIComponent(subtopicId)}&moduleIndex=${initialModuleIndex}&stage=teach${upgrade ? "&upgrade=true" : ""}`;
     safeFetchJson(url)
       .then((data) => {
+        if (data.error === "locked_down") {
+          setLockdown(data);
+          return;
+        }
         if (data.error === "locked") {
           setError(`This subtopic is locked — reach ${data.requiredMasteryPct}% mastery on ${data.requiredSubtopicText} first (currently ${data.currentMasteryPct}%).`);
           return;
@@ -78,6 +85,7 @@ export default function LearnPage({ params }) {
     decide(true);
   }
 
+  if (lockdown) return <LockdownNotice lockdown={lockdown} />;
   if (error) return <div className="error-box">{error}</div>;
   if (dispatch === null) return <div className="loading">{"Preparing this lesson… (first visit generates it, a few seconds)"}</div>;
 

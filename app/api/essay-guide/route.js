@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { essayTopics, essayGuides } from "../../../db/schema.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
+import { checkLockdown } from "../../../lib/adaptive/subjectUnlockState.js";
 import { generateEssayGuide } from "../../../lib/ai/generateEssayGuide.js";
 
 export async function GET(request) {
@@ -18,6 +19,9 @@ export async function GET(request) {
   if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   try {
+    const lockdown = await checkLockdown(userId);
+    if (lockdown) return NextResponse.json({ error: "locked_down", ...lockdown }, { status: 403 });
+
     const { searchParams } = new URL(request.url);
     const topicId = searchParams.get("topicId");
     if (!topicId) return NextResponse.json({ error: "topicId is required" }, { status: 400 });

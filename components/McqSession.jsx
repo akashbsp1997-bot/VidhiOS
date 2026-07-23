@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import LockdownNotice from "./LockdownNotice.jsx";
 
 const OPTION_LETTER = ["A", "B", "C", "D"];
 
@@ -18,17 +19,20 @@ export default function McqSession() {
   const [grading, setGrading] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [gradingError, setGradingError] = useState(null);
+  const [lockdown, setLockdown] = useState(null);
 
   const loadNext = useCallback(() => {
     setLoading(true);
     setLoadError(null);
     setGradingError(null);
+    setLockdown(null);
     setResult(null);
     setSelectedIndex(null);
     fetch("/api/mcq")
       .then((r) => r.json())
       .then((data) => {
-        if (data.error) setLoadError(data.error);
+        if (data.error === "locked_down") setLockdown(data);
+        else if (data.error) setLoadError(data.error);
         else setQuestion(data);
       })
       .catch((e) => setLoadError(e.message))
@@ -50,7 +54,8 @@ export default function McqSession() {
     })
       .then((r) => r.json())
       .then((data) => {
-        if (data.error) setGradingError(data.error);
+        if (data.error === "locked_down") setLockdown(data);
+        else if (data.error) setGradingError(data.error);
         else {
           setResult(data);
           setStats(data.stats);
@@ -61,6 +66,8 @@ export default function McqSession() {
   }
 
   if (loading) return <div className="loading">Picking your next MCQ…</div>;
+
+  if (lockdown) return <LockdownNotice lockdown={lockdown} />;
 
   if (loadError === "onboarding_not_complete") {
     return (

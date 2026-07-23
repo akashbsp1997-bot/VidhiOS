@@ -30,7 +30,7 @@ import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { generateQuestion } from "../../../lib/ai/generateQuestion.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
-import { isSubjectUnlocked } from "../../../lib/adaptive/subjectUnlockState.js";
+import { isSubjectUnlocked, checkLockdown } from "../../../lib/adaptive/subjectUnlockState.js";
 
 // Real GS Mains paper: 20 questions, 250 marks, 3 hours. Sectional is a
 // shorter practice slice, not a real paper size -- just enough to be a
@@ -115,6 +115,9 @@ export async function POST(request) {
   if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   try {
+    const lockdown = await checkLockdown(userId);
+    if (lockdown) return NextResponse.json({ error: "locked_down", ...lockdown }, { status: 403 });
+
     const { subjectId, size } = await request.json();
     if (!SIZE_CONFIG[size]) return NextResponse.json({ error: "size must be 'sectional' or 'full'" }, { status: 400 });
     if (!(await isSubjectUnlocked(userId, subjectId))) {

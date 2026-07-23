@@ -13,7 +13,7 @@ import { eq, desc } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { interviewProfiles, interviewSessions, subjects, currentAffairsItems } from "../../../db/schema.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
-import { loadUnlockedSubjectIds } from "../../../lib/adaptive/subjectUnlockState.js";
+import { loadUnlockedSubjectIds, checkLockdown } from "../../../lib/adaptive/subjectUnlockState.js";
 import { generateInterviewQuestions } from "../../../lib/ai/generateInterviewQuestions.js";
 
 export async function GET(request) {
@@ -43,6 +43,9 @@ export async function POST() {
   if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   try {
+    const lockdown = await checkLockdown(userId);
+    if (lockdown) return NextResponse.json({ error: "locked_down", ...lockdown }, { status: 403 });
+
     const [profileRow] = await db.select().from(interviewProfiles).where(eq(interviewProfiles.userId, userId));
     const profile = {
       hometown: profileRow?.hometown ?? "",

@@ -28,6 +28,7 @@ export default function PapersIndex() {
   const [onboardingComplete, setOnboardingComplete] = useState(true); // assume true until the fetch says otherwise, so the banner doesn't flash for an already-onboarded student
   const [error, setError] = useState(null);
   const [today, setToday] = useState(null);
+  const [lockdown, setLockdown] = useState(null);
 
   useEffect(() => {
     fetch("/api/papers")
@@ -37,6 +38,7 @@ export default function PapersIndex() {
         else {
           setTiles(data.tiles);
           setOnboardingComplete(data.onboardingComplete);
+          setLockdown(data.lockdown ?? null);
         }
       })
       .catch((e) => setError(e.message));
@@ -120,6 +122,21 @@ export default function PapersIndex() {
           </p>
           <a className="btn btn-primary" href="/onboarding">
             Get started →
+          </a>
+        </div>
+      )}
+
+      {lockdown && (
+        <div className="card" style={{ borderColor: "var(--maroon)" }}>
+          <h2 style={{ marginTop: 0 }}>Locked down — catch up on mastery first</h2>
+          <p className="lede" style={{ marginBottom: 10 }}>
+            You missed a plan checkpoint (day {lockdown.checkpointDay}) without reaching the mastery needed for your
+            next GS subject. Teach, MCQs, mock tests, essays, and interview prep are paused — only adaptive practice
+            stays open — until your average mastery on already-unlocked GS subjects climbs from{" "}
+            {lockdown.currentMasteryPct}% back to {lockdown.requiredMasteryPct}%.
+          </p>
+          <a className="btn btn-primary" href="/practice">
+            Start adaptive practice →
           </a>
         </div>
       )}

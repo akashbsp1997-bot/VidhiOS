@@ -24,7 +24,7 @@ import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 import { generateMcq } from "../../../lib/ai/generateMcq.js";
-import { loadUnlockedSubjectIds, isSubjectUnlocked } from "../../../lib/adaptive/subjectUnlockState.js";
+import { loadUnlockedSubjectIds, isSubjectUnlocked, checkLockdown } from "../../../lib/adaptive/subjectUnlockState.js";
 
 const MCQ_DIFFICULTY_TIER = 2; // flat -- no adaptive tiering for MCQ mode (see file header)
 const MCQ_MARKS = 2; // standard real UPSC Prelims MCQ weight
@@ -34,6 +34,9 @@ export async function GET() {
   if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   try {
+    const lockdown = await checkLockdown(userId);
+    if (lockdown) return NextResponse.json({ error: "locked_down", ...lockdown }, { status: 403 });
+
     const { unlockedGsIds, optionalSubjectId } = await loadUnlockedSubjectIds(userId);
     const unlockedSubjectIds = optionalSubjectId ? [...unlockedGsIds, optionalSubjectId] : unlockedGsIds;
     if (!unlockedSubjectIds.length) {
@@ -116,6 +119,9 @@ export async function POST(request) {
   if (!userId) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
   try {
+    const lockdown = await checkLockdown(userId);
+    if (lockdown) return NextResponse.json({ error: "locked_down", ...lockdown }, { status: 403 });
+
     const { subtopicId, questionRefId, selectedIndex } = await request.json();
     if (!subtopicId || !questionRefId || !Number.isInteger(selectedIndex)) {
       return NextResponse.json({ error: "subtopicId, questionRefId, and a numeric selectedIndex are required" }, { status: 400 });

@@ -19,7 +19,7 @@ import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 import { loadPaperLockMap } from "../../../lib/adaptive/lockState.js";
-import { isSubjectUnlocked } from "../../../lib/adaptive/subjectUnlockState.js";
+import { isSubjectUnlocked, checkLockdown } from "../../../lib/adaptive/subjectUnlockState.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
 
@@ -59,6 +59,9 @@ export async function GET(request) {
   if (!subtopicId) return NextResponse.json({ error: "subtopicId is required" }, { status: 400 });
 
   try {
+    const lockdown = await checkLockdown(userId);
+    if (lockdown) return NextResponse.json({ error: "locked_down", ...lockdown }, { status: 403 });
+
     const subtopicRows = await db.select().from(subtopics).where(eq(subtopics.id, subtopicId));
     const subtopicRow = subtopicRows[0];
     if (!subtopicRow) return NextResponse.json({ error: `Unknown subtopic: ${subtopicId}` }, { status: 404 });

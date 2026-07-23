@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ModuleTestPanel from "./ModuleTestPanel.jsx";
+import LockdownNotice from "./LockdownNotice.jsx";
 import { isStageUnlocked } from "../lib/adaptive/unlocks.js";
 
 const MAX_STAGE_FETCH_ITERATIONS = 5;
@@ -112,6 +113,7 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
   const [panelIndex, setPanelIndex] = useState(0);
   const [loadingStage, setLoadingStage] = useState(null);
   const [error, setError] = useState(null);
+  const [lockdown, setLockdown] = useState(null);
   const [allModulesComplete, setAllModulesComplete] = useState(Boolean(initialData.allModulesComplete));
   // Sequential-completion high-water mark for the CURRENT module (see
   // lib/adaptive/unlocks.js's STAGE_ORDER) -- the server includes this in
@@ -137,6 +139,10 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
       for (let i = 0; i < MAX_STAGE_FETCH_ITERATIONS; i++) {
         const url = `/api/module-lesson?subtopicId=${encodeURIComponent(subtopicId)}&moduleIndex=${idx}&stage=${stageKey}${force && i === 0 ? "&force=true" : ""}`;
         const data = await safeFetchJson(url);
+        if (data.error === "locked_down") {
+          setLockdown(data);
+          return;
+        }
         if (data.error) {
           setError(data.error);
           return;
@@ -197,6 +203,7 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
     ensureModuleStageReady(idx, "teach");
   }
 
+  if (lockdown) return <LockdownNotice lockdown={lockdown} />;
   if (error) return <div className="error-box">{error}</div>;
 
   if (allModulesComplete) {

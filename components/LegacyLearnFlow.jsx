@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import PracticeSession from "./PracticeSession.jsx";
+import LockdownNotice from "./LockdownNotice.jsx";
 
 // The pre-module-system Teach/Grasp/Remember/Test flow (one AI-generated
 // lesson covering the WHOLE subtopic, via app/api/lesson/route.js and the
@@ -116,6 +117,7 @@ function StageModules({ modules, moduleIndex, setModuleIndex, onComplete, comple
 export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
   const [lesson, setLesson] = useState(null);
   const [error, setError] = useState(null);
+  const [lockdown, setLockdown] = useState(null);
   const [stage, setStage] = useState("teach");
   const [loadingStage, setLoadingStage] = useState(null);
   const [moduleIndex, setModuleIndex] = useState(0);
@@ -126,6 +128,10 @@ export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
       for (let i = 0; i < MAX_STAGE_FETCH_ITERATIONS; i++) {
         const url = `/api/lesson?subtopicId=${encodeURIComponent(subtopicId)}&stage=${stageKey}${force && i === 0 ? "&force=true" : ""}`;
         const data = await safeFetchJson(url);
+        if (data.error === "locked_down") {
+          setLockdown(data);
+          return;
+        }
         if (data.error) {
           setError(data.error);
           return;
@@ -144,6 +150,7 @@ export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
   useEffect(() => {
     setLesson(null);
     setError(null);
+    setLockdown(null);
     setStage("teach");
     setModuleIndex(0);
     ensureStageReady("teach");
@@ -161,6 +168,7 @@ export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
     ensureStageReady(next);
   }
 
+  if (lockdown) return <LockdownNotice lockdown={lockdown} />;
   if (error) return <div className="error-box">{error}</div>;
   if (!lesson) return <div className="loading">{"Preparing this lesson… (first visit generates it, a few seconds)"}</div>;
 
