@@ -21,6 +21,7 @@ export default async function RootLayout({ children }) {
             {userId && (
               <nav className="toplinks" style={{ display: "flex", alignItems: "center", gap: 16 }}>
                 <a href="/">Dashboard</a>
+                <a href="/plan">Plan</a>
                 <a href="/practice">Practice</a>
                 <LogoutButton />
               </nav>
