@@ -342,6 +342,40 @@ export const mockTestQuestions = pgTable("mock_test_questions", {
 });
 
 /**
+ * Spaced-repetition review state for flashcards (see lib/adaptive/srs.js,
+ * lib/adaptive/flashcards.js). A "card" isn't stored anywhere -- it's
+ * derived fresh on every fetch from content a real Teach/Grasp visit
+ * already generated (lessons.keyProvisions/caseLaw/mnemonics,
+ * lessonModules.keyPoints/mnemonic), so cardId is a deterministic string
+ * (e.g. "lesson:CA2:kp:0") this table's PK anchors review state to, not a
+ * foreign key to a cards table. Simplified SM-2, same algorithm Anki's
+ * predecessor SuperMemo used: easeFactor/intervalDays/repetitions evolve
+ * per review, dueAt is when it should be shown again. No row here at all
+ * means "never reviewed" -- treated as immediately due, same as any other
+ * new card.
+ */
+export const flashcardReviews = pgTable(
+  "flashcard_reviews",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id),
+    cardId: text("card_id").notNull(),
+    subtopicId: text("subtopic_id")
+      .notNull()
+      .references(() => subtopics.id),
+    easeFactor: real("ease_factor").notNull().default(2.5),
+    intervalDays: integer("interval_days").notNull().default(0),
+    repetitions: integer("repetitions").notNull().default(0),
+    dueAt: timestamp("due_at").notNull().defaultNow(),
+    lastReviewedAt: timestamp("last_reviewed_at"),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.cardId] }),
+  })
+);
+
+/**
  * One row per (user, subtopic): the running mastery estimate the adaptive
  * engine both reads and updates. See lib/adaptive/engine.js for the update
  * rule.

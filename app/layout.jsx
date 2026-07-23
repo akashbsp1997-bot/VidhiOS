@@ -27,6 +27,7 @@ export default async function RootLayout({ children }) {
                 <a href="/practice">Practice</a>
                 <a href="/prelims">Prelims</a>
                 <a href="/mock-tests">Mock tests</a>
+                <a href="/flashcards">Flashcards</a>
                 <LogoutButton />
               </nav>
             )}
