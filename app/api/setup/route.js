@@ -14,6 +14,7 @@ import { gs3SyllabusSeed } from "../../../db/seed/gs3-syllabus.js";
 import { gs1SyllabusSeed } from "../../../db/seed/gs1-syllabus.js";
 import { gs4SyllabusSeed } from "../../../db/seed/gs4-syllabus.js";
 import { essayTopicsSeed } from "../../../db/seed/essay-topics.js";
+import { politicalScienceSyllabusSeed } from "../../../db/seed/political-science-syllabus.js";
 
 // syllabusSeed/pyqsSeed (Law Optional) predate the subjectId column and
 // don't carry it on each row (it was backfilled once, directly in the DB,
@@ -27,6 +28,7 @@ const allSubtopicsSeed = [
   ...gs3SyllabusSeed,
   ...gs1SyllabusSeed,
   ...gs4SyllabusSeed,
+  ...politicalScienceSyllabusSeed,
 ];
 const allPyqsSeed = [
   ...pyqsSeed.map((p) => ({ ...p, subjectId: "law-optional" })),
