@@ -7,6 +7,22 @@ import { isStageUnlocked } from "../lib/adaptive/unlocks.js";
 
 const MAX_STAGE_FETCH_ITERATIONS = 5;
 
+// teachContent is now generated as one bullet point per line (see
+// lib/ai/generateModules.js's buildModuleTeachSystem), each line optionally
+// prefixed "- " -- stripped here rather than asked to be omitted, so a line
+// that happens to start with a real hyphenated word isn't mangled. Also the
+// graceful fallback for content generated before this format existed:
+// older cached rows are full paragraphs separated by "\n\n", which
+// split("\n") + filter(Boolean) still turns into one list item per
+// paragraph (the blank line between them is exactly what's filtered out) --
+// readable either way, no migration needed for already-cached lessons.
+function bulletLines(text) {
+  return text
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-•]\s*/, ""))
+    .filter(Boolean);
+}
+
 async function safeFetchJson(url, options) {
   const res = await fetch(url, options);
   const raw = await res.text();
@@ -230,11 +246,15 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
         {
           key: "concept",
           label: "Concept",
-          node: moduleContent.teachContent.split("\n\n").map((para, i) => (
-            <p key={i} style={{ fontSize: 14.5, lineHeight: 1.6 }}>
-              {para}
-            </p>
-          )),
+          node: (
+            <ul style={{ paddingLeft: 20, fontSize: 14.5, lineHeight: 1.7 }}>
+              {bulletLines(moduleContent.teachContent).map((line, i) => (
+                <li key={i} style={{ marginBottom: 6 }}>
+                  {line}
+                </li>
+              ))}
+            </ul>
+          ),
         },
         moduleContent.keyPoints?.length > 0 && {
           key: "keypoints",

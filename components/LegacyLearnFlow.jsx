@@ -23,6 +23,17 @@ const STAGES = [
 
 const MAX_STAGE_FETCH_ITERATIONS = 5;
 
+// See components/ModuleLearnFlow.jsx's identical helper for why this
+// gracefully handles both the current bullet-per-line format
+// (lib/ai/generateLesson.js's buildCoreSystem) and older cached rows still
+// stored as "\n\n"-separated paragraphs.
+function bulletLines(text) {
+  return text
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-•]\s*/, ""))
+    .filter(Boolean);
+}
+
 async function safeFetchJson(url, options) {
   const res = await fetch(url, options);
   const raw = await res.text();
@@ -178,11 +189,15 @@ export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
     {
       key: "concept",
       label: "Concept",
-      node: lesson.teachContent.split("\n\n").map((para, i) => (
-        <p key={i} style={{ fontSize: 14.5, lineHeight: 1.6 }}>
-          {para}
-        </p>
-      )),
+      node: (
+        <ul style={{ paddingLeft: 20, fontSize: 14.5, lineHeight: 1.7 }}>
+          {bulletLines(lesson.teachContent).map((line, i) => (
+            <li key={i} style={{ marginBottom: 6 }}>
+              {line}
+            </li>
+          ))}
+        </ul>
+      ),
     },
     lesson.keyProvisions?.length > 0 && {
       key: "provisions",
