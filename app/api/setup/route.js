@@ -15,6 +15,7 @@ import { gs1SyllabusSeed } from "../../../db/seed/gs1-syllabus.js";
 import { gs4SyllabusSeed } from "../../../db/seed/gs4-syllabus.js";
 import { essayTopicsSeed } from "../../../db/seed/essay-topics.js";
 import { politicalScienceSyllabusSeed } from "../../../db/seed/political-science-syllabus.js";
+import { ncertSourcesSeed } from "../../../db/seed/ncert-sources.js";
 
 // syllabusSeed/pyqsSeed (Law Optional) predate the subjectId column and
 // don't carry it on each row (it was backfilled once, directly in the DB,
@@ -34,6 +35,7 @@ const allPyqsSeed = [
   ...pyqsSeed.map((p) => ({ ...p, subjectId: "law-optional" })),
   ...gs2PyqsSeed,
 ];
+const allSourcesSeed = [...sourcesSeed, ...ncertSourcesSeed];
 
 // Table/column creation used to live here as hand-written DDL, run on every
 // visit to this route. As of Phase 1 (see docs/ARCHITECTURE.md and the
@@ -101,7 +103,7 @@ export async function GET(request) {
   try {
     const existingSources = await db.select({ subtopicId: sources.subtopicId, url: sources.url }).from(sources);
     const existingKeys = new Set(existingSources.map((s) => `${s.subtopicId}|${s.url}`));
-    const newSources = sourcesSeed.filter((row) => !existingKeys.has(`${row.subtopicId}|${row.url}`));
+    const newSources = allSourcesSeed.filter((row) => !existingKeys.has(`${row.subtopicId}|${row.url}`));
     if (newSources.length) await db.insert(sources).values(newSources);
     log.push(`OK  seed:sources (${newSources.length} new)`);
   } catch (err) {
