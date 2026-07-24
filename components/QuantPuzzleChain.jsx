@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import LockdownNotice from "./LockdownNotice.jsx";
+import { bulletLines } from "../lib/text/bullets.js";
 
 const OPTION_LETTER = ["A", "B", "C", "D"];
 const SUBJECT_ID = "prelims-csat";
@@ -39,6 +40,17 @@ export default function QuantPuzzleChain() {
   const [bestChain, setBestChain] = useState(0); // session-local high score, like Quiz Arcade's round score -- not persisted server-side
   const [chainBroken, setChainBroken] = useState(false);
 
+  // Quick-refresher lesson card (see app/api/quant-lesson/route.js) -- the
+  // chain round-robins across all 15 CSAT subtopics (least-attempted-first),
+  // so a new question can be from a different subtopic than the last one;
+  // this shows THAT question's subtopic's lesson, cached client-side for the
+  // session (a subtopic recurs across a long chain), auto-expanded the
+  // first time this session a given subtopic appears and collapsed after.
+  const [lesson, setLesson] = useState(null);
+  const [lessonExpanded, setLessonExpanded] = useState(false);
+  const lessonCache = useRef(new Map()); // subtopicId -> {explanation, shortcuts}
+  const seenSubtopics = useRef(new Set());
+
   const loadPuzzle = useCallback((tier) => {
     setLoading(true);
     setLoadError(null);
@@ -60,6 +72,30 @@ export default function QuantPuzzleChain() {
   useEffect(() => {
     loadPuzzle(1);
   }, [loadPuzzle]);
+
+  useEffect(() => {
+    const subtopicId = question?.subtopicId;
+    if (!subtopicId) return;
+
+    const firstTimeThisSession = !seenSubtopics.current.has(subtopicId);
+    seenSubtopics.current.add(subtopicId);
+    setLessonExpanded(firstTimeThisSession);
+
+    const cached = lessonCache.current.get(subtopicId);
+    if (cached) {
+      setLesson(cached);
+      return;
+    }
+    setLesson(null);
+    fetch(`/api/quant-lesson?subtopicId=${encodeURIComponent(subtopicId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) return; // non-fatal -- the puzzle itself already loaded fine
+        lessonCache.current.set(subtopicId, data);
+        setLesson(data);
+      })
+      .catch(() => {}); // non-fatal, same reasoning
+  }, [question?.subtopicId]);
 
   function submitAnswer() {
     if (!question || selectedIndex == null) return;
@@ -133,6 +169,37 @@ export default function QuantPuzzleChain() {
         </span>
         {bestChain > 0 && <span style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>Best this session: {bestChain}</span>}
       </div>
+
+      {lesson && (
+        <div className="card" style={{ background: "var(--ivory-2)" }}>
+          <button
+            className="btn"
+            style={{ fontSize: 12.5, marginBottom: lessonExpanded ? 10 : 0 }}
+            onClick={() => setLessonExpanded((e) => !e)}
+          >
+            {lessonExpanded ? "▾" : "▸"} 📖 Quick refresher: {question.subtopicText}
+          </button>
+          {lessonExpanded && (
+            <>
+              <ul style={{ paddingLeft: 20, fontSize: 13.5, lineHeight: 1.6, margin: 0 }}>
+                {bulletLines(lesson.explanation).map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+              {lesson.shortcuts?.length > 0 && (
+                <>
+                  <strong style={{ fontSize: 12.5 }}>Shortcuts</strong>
+                  <ul style={{ paddingLeft: 20, fontSize: 13.5, lineHeight: 1.6, marginTop: 4 }}>
+                    {lesson.shortcuts.map((s, i) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="card">
         <div className="meta-line">
