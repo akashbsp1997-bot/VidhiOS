@@ -13,6 +13,7 @@ import { subtopics, mastery, attempts, mockTests, subjects } from "../../../db/s
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { loadUnlockedSubjectIds } from "../../../lib/adaptive/subjectUnlockState.js";
 import { computeStreak } from "../../../lib/adaptive/readiness.js";
+import { getPaceStatus } from "../../../lib/adaptive/paceState.js";
 
 export async function GET() {
   const userId = await getSessionUserId();
@@ -85,6 +86,11 @@ export async function GET() {
     const descriptiveAttempts = allAttempts.filter((a) => a.questionSource !== "mcq");
     const mcqAttempts = allAttempts.filter((a) => a.questionSource === "mcq");
 
+    // A fourth, independent lens (see lib/adaptive/pacing.js's header) --
+    // never blended into overallMastery above, same "no single score"
+    // principle this route already holds for mastery/MCQ/mock-test.
+    const pace = await getPaceStatus(userId);
+
     return NextResponse.json({
       overallMastery,
       totalSubtopics: ids.length,
@@ -111,6 +117,7 @@ export async function GET() {
           })),
       },
       heatmap,
+      pace,
     });
   } catch (err) {
     console.error(err);

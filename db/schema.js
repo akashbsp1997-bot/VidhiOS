@@ -793,3 +793,31 @@ export const lessonModules = pgTable(
     subtopicOrderUnique: unique("lesson_modules_subtopic_order_unique").on(table.subtopicId, table.orderIndex),
   })
 );
+
+/**
+ * One row per (user, 30-day window since plan start) -- the "anchor"
+ * mastery percentage a window's trajectory target is computed from (see
+ * lib/adaptive/pacing.js). Written once, lazily, the first time
+ * lib/adaptive/paceState.js's getPaceStatus is asked about a window that
+ * doesn't have a row yet; never updated after that -- a window's target is
+ * fixed once set, which is what makes "re-anchor every 30 days" a real,
+ * discrete recalibration event rather than a continuously-drifting number.
+ * windowIndex 0's anchor is always the fixed PACE_START_MASTERY floor, not
+ * measured; every later window's anchor is whatever mastery was actually
+ * observed at that point, which is the "based on user usage" adjustment.
+ */
+export const paceCheckpoints = pgTable(
+  "pace_checkpoints",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id),
+    windowIndex: integer("window_index").notNull(), // 0-based, floor(dayNumber / 30)
+    windowStartDay: integer("window_start_day").notNull(), // windowIndex * 30, denormalized for cheap reads
+    anchorMasteryPct: real("anchor_mastery_pct").notNull(), // 0-100
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.windowIndex] }),
+  })
+);

@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 
+const PACE_LABEL = { ahead: "Ahead of pace", on_pace: "On pace", behind: "Behind pace" };
+const PACE_BORDER = { ahead: "var(--forest)", on_pace: "var(--brass)", behind: "var(--maroon)" };
+
 // Aggregates what /plan and /guide each show in pieces into one "how ready
 // am I" view -- a streak, a weak-area heatmap, and descriptive/MCQ/mock-test
 // performance side by side. Deliberately no single blended score (see
@@ -77,6 +80,34 @@ export default function ReadinessPage() {
           </div>
         </div>
       </div>
+
+      {data.pace && (
+        <div className="card" style={{ borderColor: PACE_BORDER[data.pace.status] }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
+            <h2 style={{ margin: 0 }}>Pace toward your 1-year goal</h2>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: PACE_BORDER[data.pace.status] }}>{PACE_LABEL[data.pace.status]}</span>
+          </div>
+          <p className="lede" style={{ marginBottom: 8 }}>
+            Day {data.pace.dayNumber} of 365, aiming for 70% average mastery across your unlocked syllabus (real UPSC
+            toppers often clear well under 60% of total marks — this target is deliberately higher). Re-anchored to
+            your own actual progress every 30 days, not a fixed straight line from day one.
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14 }}>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{Math.round(data.pace.currentMasteryPct)}%</div>
+              <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>where you are today</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{Math.round(data.pace.expectedMasteryPct)}%</div>
+              <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>expected by today, this window</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{Math.round(data.pace.projectedFinalMasteryPct)}%</div>
+              <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>projected at day 365, at your current rate</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
