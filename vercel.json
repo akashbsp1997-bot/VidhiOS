@@ -11,6 +11,14 @@
     {
       "path": "/api/cron/fetch-current-affairs",
       "schedule": "30 1 * * *"
+    },
+    {
+      "path": "/api/cron/grade-daily-answers",
+      "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/cron/prepare-next-day",
+      "schedule": "30 21 * * *"
     }
   ]
 }

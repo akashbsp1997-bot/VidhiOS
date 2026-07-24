@@ -1,16 +1,18 @@
 // app/api/mock-tests/finish/route.js
 //
 // POST { mockTestId } -> closes out a mock test after the client has looped
-// through grade-question for every answered question: marks submittedAt and
-// computes totalScore. Any question the client never graded (skipped/left
-// blank) is treated as 0 marks earned here rather than triggering its own
-// grading call -- gradeAnswer already short-circuits an empty answer to a
-// 0 score for free, so there's nothing to gain from calling it for a
-// question with no persisted answerText at all.
+// through grade-question for every answered question: marks submittedAt
+// only. totalScore is left null and computed later by
+// app/api/cron/grade-daily-answers/route.js, once every answered question in
+// this test has been graded overnight (see the 2026-07-24
+// overnight-batch-grading change -- grade-question no longer grades inline,
+// so there's nothing to sum yet at submit time). A question the student
+// never answered (answerText still null) is never sent for grading and
+// counts as 0 marks in that later sum, same as it always did here.
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "../../../../lib/db.js";
-import { mockTests, mockTestQuestions } from "../../../../db/schema.js";
+import { mockTests } from "../../../../db/schema.js";
 import { getSessionUserId } from "../../../../lib/supabase/server.js";
 
 export async function POST(request) {
@@ -25,12 +27,9 @@ export async function POST(request) {
     if (!test || test.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (test.submittedAt) return NextResponse.json({ error: "Already submitted", totalScore: test.totalScore }, { status: 409 });
 
-    const questions = await db.select().from(mockTestQuestions).where(eq(mockTestQuestions.mockTestId, test.id));
-    const totalScore = questions.reduce((sum, q) => sum + Math.round(((q.score ?? 0) / 100) * q.marks), 0);
+    await db.update(mockTests).set({ submittedAt: new Date() }).where(eq(mockTests.id, test.id));
 
-    await db.update(mockTests).set({ submittedAt: new Date(), totalScore }).where(eq(mockTests.id, test.id));
-
-    return NextResponse.json({ totalScore, totalMarks: test.totalMarks });
+    return NextResponse.json({ pending: true, totalMarks: test.totalMarks });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });

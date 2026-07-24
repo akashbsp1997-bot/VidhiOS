@@ -8,8 +8,10 @@ const SOURCE_LABEL = { pyq: "Real PYQ", model: "Model question", generate: "Gene
 export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
   const [question, setQuestion] = useState(null);
   const [answerText, setAnswerText] = useState("");
-  const [feedback, setFeedback] = useState(null);
-  const [masteryAfter, setMasteryAfter] = useState(null);
+  // Grading is no longer synchronous (see the 2026-07-24 overnight-batch-
+  // grading change) -- `submitted` just tracks "this answer is saved,"
+  // there's no feedback/mastery to hold onto from the POST response anymore.
+  const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [grading, setGrading] = useState(false);
   // Separate states, deliberately -- a "picking a question" failure (no
@@ -27,7 +29,7 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
     setLoading(true);
     setLoadError(null);
     setGradingError(null);
-    setFeedback(null);
+    setSubmitted(false);
     setAnswerText("");
     const qs = forcedSubtopicId ? `?subtopicId=${encodeURIComponent(forcedSubtopicId)}` : "";
     fetch(`/api/attempt${qs}`)
@@ -68,10 +70,7 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
       .then((r) => r.json())
       .then((data) => {
         if (data.error) setGradingError(data.error);
-        else {
-          setFeedback(data.feedback);
-          setMasteryAfter(data.mastery);
-        }
+        else setSubmitted(true);
       })
       .catch((e) => setGradingError(e.message))
       .finally(() => setGrading(false));
@@ -134,7 +133,7 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
         <div className="question-text">{question.questionText}</div>
         <ModelAnswerPanel subtopicId={question.subtopicId} questionSource={question.questionSource} questionRefId={question.questionRefId} />
 
-        {!feedback && (
+        {!submitted && (
           <>
             <textarea
               className="answer-box"
@@ -150,74 +149,27 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
             )}
             <div style={{ marginTop: 12 }}>
               <button className="btn btn-primary" onClick={submitAnswer} disabled={grading || !answerText.trim()}>
-                {grading ? "Grading…" : gradingError ? "Retry grading" : "Submit answer"}
+                {grading ? "Saving…" : gradingError ? "Retry saving" : "Submit answer"}
               </button>
             </div>
           </>
         )}
 
-        {feedback && (
+        {submitted && (
           <div style={{ marginTop: 10 }}>
-            <div className="feedback-score">{feedback.score}/100</div>
-            <p>{feedback.verdict}</p>
-
-            {feedback.strengths?.length > 0 && (
-              <>
-                <strong>Strengths</strong>
-                <ul className="feedback-list strong">
-                  {feedback.strengths.map((s, i) => (
-                    <li key={i}>{s}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-            {feedback.weaknesses?.length > 0 && (
-              <>
-                <strong>Weaknesses</strong>
-                <ul className="feedback-list weak">
-                  {feedback.weaknesses.map((s, i) => (
-                    <li key={i}>{s}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-            {feedback.missedProvisions?.length > 0 && (
-              <>
-                <strong>Worth checking</strong>
-                <ul className="feedback-list">
-                  {feedback.missedProvisions.map((s, i) => (
-                    <li key={i}>{s}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-            {masteryAfter && (
-              <p style={{ fontSize: 13, color: "var(--ink-soft)" }}>
-                Subtopic mastery now {Math.round(masteryAfter.score * 100)}% · tier {masteryAfter.tier} ·{" "}
-                {masteryAfter.attemptsCount} attempt{masteryAfter.attemptsCount === 1 ? "" : "s"} recorded
-              </p>
-            )}
-
-            {masteryAfter?.tierHeldBack && (
-              <p style={{ fontSize: 13, color: "var(--maroon)" }}>
-                Two strong answers in a row would normally raise the difficulty, but subtopic mastery is still below{" "}
-                {masteryAfter.tierHeldBack.requiredMasteryPct}% (currently {masteryAfter.tierHeldBack.currentMasteryPct}%) —
-                keep practicing at this tier to unlock harder questions.
-              </p>
-            )}
-
-            <button className="btn btn-primary" onClick={loadNext} style={{ marginTop: 8 }}>
+            <p className="lede" style={{ marginBottom: 0 }}>
+              ✓ Saved — you'll get your score and feedback after tonight's grading run. Your mastery and difficulty
+              tier for this subtopic will update then too.
+            </p>
+            <button className="btn btn-primary" onClick={loadNext} style={{ marginTop: 12 }}>
               Next question →
             </button>
           </div>
         )}
 
         <div className="disclaimer">
-          AI-graded feedback can be wrong, especially on exact citations — the "worth checking" list flags what
-          the grader wasn't itself confident about. Cross-check anything you plan to use in a real answer.
+          Answers are graded once a day (overnight) so feedback is available the next morning, not instantly — see
+          your day's results at /results once grading has run.
         </div>
       </div>
     </>

@@ -114,7 +114,8 @@ export default function ReadinessPage() {
           <div>
             <h3 style={{ fontSize: 13.5, marginBottom: 4 }}>Descriptive practice</h3>
             <p style={{ fontSize: 13, margin: 0 }}>
-              {data.descriptive.attempted} attempted{data.descriptive.avgScore != null ? ` · avg ${data.descriptive.avgScore}/100` : ""}
+              {data.descriptive.attempted} graded{data.descriptive.avgScore != null ? ` · avg ${data.descriptive.avgScore}/100` : ""}
+              {data.descriptive.pendingGrading > 0 && ` · ${data.descriptive.pendingGrading} pending tonight's grading`}
             </p>
           </div>
           <div>
@@ -126,7 +127,8 @@ export default function ReadinessPage() {
           <div>
             <h3 style={{ fontSize: 13.5, marginBottom: 4 }}>Mock tests</h3>
             <p style={{ fontSize: 13, margin: 0 }}>
-              {data.mockTests.count === 0 ? "None submitted yet" : `${data.mockTests.count} taken · avg ${data.mockTests.avgPct}%`}
+              {data.mockTests.count === 0 ? "None graded yet" : `${data.mockTests.count} taken · avg ${data.mockTests.avgPct}%`}
+              {data.mockTests.pendingGrading > 0 && ` · ${data.mockTests.pendingGrading} pending tonight's grading`}
             </p>
           </div>
         </div>
@@ -153,9 +155,7 @@ export default function ReadinessPage() {
                 {m.subjectDisplayName} — {m.size}
               </span>
               <span style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>{new Date(m.submittedAt).toLocaleDateString()}</span>
-              <span className="tier-pill">
-                {m.totalScore}/{m.totalMarks}
-              </span>
+              <span className="tier-pill">{m.totalScore != null ? `${m.totalScore}/${m.totalMarks}` : "grading…"}</span>
             </div>
           ))}
         </div>

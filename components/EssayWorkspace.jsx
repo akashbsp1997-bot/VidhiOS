@@ -14,7 +14,7 @@ function wordCount(text) {
 // and get it graded holistically. See app/api/essay-* for why this is
 // entirely separate from the subtopic-based Teach/Practice/Test pipeline.
 export default function EssayWorkspace() {
-  const [mode, setMode] = useState("browse"); // 'browse' | 'write' | 'result'
+  const [mode, setMode] = useState("browse"); // 'browse' | 'write' | 'pending' | 'result'
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [lockdown, setLockdown] = useState(null);
@@ -81,6 +81,11 @@ export default function EssayWorkspace() {
       .then((d) => {
         if (d.error === "locked_down") setLockdown(d);
         else if (d.error) setError(d.error);
+        // Grading is deferred to the nightly batch by default (see the
+        // 2026-07-24 overnight-batch-grading change) -- d.feedback only
+        // comes back if this ever sends gradeNow:true, which it doesn't
+        // today (that's reserved for components/EssayTournament.jsx).
+        else if (d.pending) setMode("pending");
         else {
           setResult(d.feedback);
           setMode("result");
@@ -184,10 +189,23 @@ export default function EssayWorkspace() {
           <p style={{ fontSize: 12, color: "var(--ink-soft)" }}>{words} words</p>
 
           <button className="btn btn-primary" onClick={submitEssay} disabled={submitting || !essayText.trim()}>
-            {submitting ? "Grading…" : "Submit essay"}
+            {submitting ? "Saving…" : "Submit essay"}
           </button>
         </div>
       </>
+    );
+  }
+
+  if (mode === "pending") {
+    return (
+      <div className="card">
+        <p className="lede" style={{ marginBottom: 12 }}>
+          ✓ Saved — you'll get your score and feedback after tonight's grading run.
+        </p>
+        <button className="btn btn-primary" onClick={() => setMode("browse")}>
+          Choose another topic →
+        </button>
+      </div>
     );
   }
 

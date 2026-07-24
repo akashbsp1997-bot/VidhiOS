@@ -3,25 +3,30 @@
 // GET  ?subtopicId=CA1 (optional) -> the next question to answer. Omit
 //      subtopicId for full adaptive mode (engine picks the subtopic too).
 // POST { subtopicId, questionSource, questionRefId, questionTextSnapshot,
-//        difficultyTier, marks, answerText } -> grades the answer, records
-//      the attempt, updates mastery + tier. Does NOT return the next
-//      question — call GET again (keeps the two concerns separate; see
-//      docs/ARCHITECTURE.md).
+//        difficultyTier, marks, answerText } -> SAVES the attempt only, no
+//      AI grading call and no mastery/tier update happen here anymore (see
+//      the 2026-07-24 overnight-batch-grading change) -- grading and the
+//      mastery/tier update both happen later, in
+//      app/api/cron/grade-daily-answers/route.js's nightly run, via
+//      lib/adaptive/masteryUpdate.js's applyGradedScore. Response is
+//      { pending: true, attemptId }, not { feedback, mastery }. Does NOT
+//      return the next question either way — call GET again (keeps the two
+//      concerns separate; see docs/ARCHITECTURE.md).
 
-// Explicit, not left at the platform default -- both branches make at most
-// one AI call each (generateQuestion or gradeAnswer), each individually
-// bounded by lib/ai/client.js's 45s timeout; 90s leaves headroom above that
-// for the DB work either side without assuming the account's actual default
-// ceiling is high enough (this project has needed to raise it explicitly
-// before -- see app/api/lesson/route.js's history).
+// Explicit, not left at the platform default -- GET makes at most one AI
+// call (generateQuestion), bounded by lib/ai/client.js's 25s timeout; POST
+// makes none anymore (grading moved to the nightly batch cron, see below).
+// 90s leaves headroom above that for the DB work either side without
+// assuming the account's actual default ceiling is high enough (this
+// project has needed to raise it explicitly before -- see
+// app/api/lesson/route.js's history).
 export const maxDuration = 90;
 
 import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { subtopics, mastery, pyqs, modelQuestions, attempts, sources, lessonModules, subjects } from "../../../db/schema.js";
-import { chooseSubtopic, chooseQuestionPlan, updateMastery, nextTier, tierEscalationBlockedInfo, pushRecentScore } from "../../../lib/adaptive/engine.js";
-import { gradeAnswer } from "../../../lib/ai/grade.js";
+import { chooseSubtopic, chooseQuestionPlan } from "../../../lib/adaptive/engine.js";
 import { generateQuestion } from "../../../lib/ai/generateQuestion.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
@@ -30,7 +35,6 @@ import { loadPaperLockMap } from "../../../lib/adaptive/lockState.js";
 import { computeModuleLocks, isStageUnlocked } from "../../../lib/adaptive/unlocks.js";
 import { isSubjectUnlocked, loadUnlockedSubjectIds } from "../../../lib/adaptive/subjectUnlockState.js";
 import { isGatedCategory } from "../../../lib/adaptive/subjectUnlocks.js";
-import { isPassingScore } from "../../../lib/adaptive/scoring.js";
 import { recordMissionSafe } from "../../../lib/gamification/missions.js";
 
 // A module-level Test (components/ModuleTestPanel.jsx) always wants exactly
@@ -357,102 +361,56 @@ export async function POST(request) {
       return NextResponse.json({ error: "subject_locked" }, { status: 403 });
     }
 
-    // Grading uses a more specific subtopicText for a module-level attempt --
-    // gradeAnswer's own signature is unchanged, this is just a richer string
-    // passed through its existing subtopicText param (see lib/ai/grade.js).
-    let subtopicTextForGrading = subtopicRow.topicText;
+    const [inserted] = await db
+      .insert(attempts)
+      .values({
+        userId,
+        subtopicId,
+        questionSource: questionSource || "pyq",
+        questionRefId: String(questionRefId),
+        questionTextSnapshot,
+        difficultyTier: difficultyTier || 1,
+        marks: marks || 15,
+        answerText,
+        score: null, // graded overnight -- see app/api/cron/grade-daily-answers/route.js
+        feedback: null,
+        moduleId: moduleId || null,
+      })
+      .returning();
+
+    // Bumping testAttempts is a pure DB write (no AI, no score needed), so
+    // it still happens immediately -- it's what the NEXT module's
+    // attempt-count unlock condition checks (lib/adaptive/unlocks.js's
+    // computeModuleLocks). The mastery-FLOOR condition for that same next
+    // module still needs tonight's grading; bestScore01 is likewise only
+    // knowable once a score exists, so that update lives in
+    // lib/adaptive/masteryUpdate.js's applyGradedScore, called by the
+    // grading cron, not here.
     if (moduleId) {
-      const moduleRows = await db.select().from(lessonModules).where(eq(lessonModules.id, moduleId));
-      const moduleRow = moduleRows[0];
-      if (moduleRow) {
-        subtopicTextForGrading = `${subtopicRow.topicText} — module focus: "${moduleRow.title}" (${moduleRow.scopeNote})`;
+      const existingRows = await db
+        .select()
+        .from(mastery)
+        .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
+      const existing = existingRows[0];
+      const moduleProgress = { ...(existing?.moduleProgress ?? {}) };
+      const key = String(moduleId);
+      const prevEntry = moduleProgress[key] ?? {};
+      moduleProgress[key] = { ...prevEntry, testAttempts: (prevEntry.testAttempts ?? 0) + 1 };
+
+      if (existing) {
+        await db
+          .update(mastery)
+          .set({ moduleProgress })
+          .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
+      } else {
+        await db.insert(mastery).values({ userId, subtopicId, moduleProgress });
       }
     }
 
-    const feedback = await gradeAnswer({
-      questionText: questionTextSnapshot,
-      marks: marks || 15,
-      subtopicText: subtopicTextForGrading,
-      answerText,
-      subjectConfig: getSubjectConfig(subtopicRow.subjectId),
-    });
-
-    await db.insert(attempts).values({
-      userId,
-      subtopicId,
-      questionSource: questionSource || "pyq",
-      questionRefId: String(questionRefId),
-      questionTextSnapshot,
-      difficultyTier: difficultyTier || 1,
-      marks: marks || 15,
-      answerText,
-      score: feedback.score,
-      feedback,
-      moduleId: moduleId || null,
-    });
-
-    const existingRows = await db
-      .select()
-      .from(mastery)
-      .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
-    const existing = existingRows[0];
-    const attemptsSoFar = existing?.attemptsCount ?? 0;
-    const oldMastery = existing?.masteryScore ?? 0;
-    const score01 = feedback.score / 100;
-    const newMasteryScore = updateMastery(oldMastery, attemptsSoFar, score01);
-    const recentScores = pushRecentScore(existing?.recentScores ?? [], score01);
-    const oldTier = existing?.currentTier ?? 1;
-    // Gated by the just-updated mastery score, not the pre-attempt one --
-    // this attempt's own score is what may have just crossed the tier's
-    // mastery floor (see lib/adaptive/engine.js's TIER_MASTERY_FLOOR).
-    const newTier = nextTier(oldTier, recentScores, newMasteryScore);
-    const tierHeldBack = tierEscalationBlockedInfo(oldTier, recentScores, newMasteryScore);
-
-    const moduleProgress = { ...(existing?.moduleProgress ?? {}) };
-    if (moduleId) {
-      const key = String(moduleId);
-      const prevEntry = moduleProgress[key] ?? {};
-      moduleProgress[key] = {
-        ...prevEntry,
-        testAttempts: (prevEntry.testAttempts ?? 0) + 1,
-        bestScore01: Math.max(prevEntry.bestScore01 ?? 0, score01),
-      };
-    }
-
-    if (existing) {
-      await db
-        .update(mastery)
-        .set({
-          masteryScore: newMasteryScore,
-          attemptsCount: attemptsSoFar + 1,
-          currentTier: newTier,
-          recentScores,
-          lastAttemptAt: new Date(),
-          moduleProgress,
-        })
-        .where(and(eq(mastery.userId, userId), eq(mastery.subtopicId, subtopicId)));
-    } else {
-      await db.insert(mastery).values({
-        userId,
-        subtopicId,
-        masteryScore: newMasteryScore,
-        attemptsCount: 1,
-        currentTier: newTier,
-        recentScores,
-        lastAttemptAt: new Date(),
-        moduleProgress,
-      });
-    }
-
     const practiceMission = await recordMissionSafe(userId, "practice");
-    const passMission = isPassingScore(feedback.score) ? await recordMissionSafe(userId, "pass") : null;
-    const missionRewards = [practiceMission, passMission].filter((m) => m?.newlyCompleted).map((m) => m.item);
+    const missionRewards = [practiceMission].filter((m) => m?.newlyCompleted).map((m) => m.item);
 
-    return NextResponse.json({
-      feedback,
-      mastery: { score: newMasteryScore, tier: newTier, attemptsCount: attemptsSoFar + 1, tierHeldBack },
-      missionRewards,
-    });
+    return NextResponse.json({ pending: true, attemptId: inserted.id, missionRewards });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });

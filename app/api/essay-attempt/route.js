@@ -1,11 +1,19 @@
 // app/api/essay-attempt/route.js
 //
 // GET ?topicId=  -> this user's past attempts on one topic.
-// POST { topicId, essayText } -> grades the essay holistically (one AI
-// call, see lib/ai/gradeEssay.js) and records the attempt. Unlike
-// descriptive/MCQ/mock-test practice, this never touches `mastery` --
-// Essay is its own paper with its own grading criteria, not something that
-// feeds a GS subtopic's mastery score.
+// POST { topicId, essayText, gradeNow? } -> saves the essay. By default
+// (gradeNow omitted/false) grading is deferred to
+// app/api/cron/grade-daily-answers/route.js's nightly batch, same as
+// /api/attempt (see the 2026-07-24 overnight-batch-grading change) --
+// response is { id, pending: true }. `gradeNow: true` keeps the OLD
+// synchronous behavior ({ id, feedback }) and is reserved for
+// components/EssayTournament.jsx specifically: its round-advance is a
+// real-time game mechanic (pass/fail decided the instant the score comes
+// back), which deferred grading would break outright, not just delay --
+// see that component and the plan doc for the full reasoning. Unlike
+// descriptive/MCQ/mock-test practice, this never touches `mastery` -- Essay
+// is its own paper with its own grading criteria, not something that feeds
+// a GS subtopic's mastery score.
 export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
@@ -44,7 +52,7 @@ export async function POST(request) {
     const lockdown = await checkLockdown(userId);
     if (lockdown) return NextResponse.json({ error: "locked_down", ...lockdown }, { status: 403 });
 
-    const { topicId, essayText } = await request.json();
+    const { topicId, essayText, gradeNow } = await request.json();
     if (!topicId || typeof essayText !== "string") {
       return NextResponse.json({ error: "topicId and essayText are required" }, { status: 400 });
     }
@@ -52,17 +60,25 @@ export async function POST(request) {
     const [topic] = await db.select().from(essayTopics).where(eq(essayTopics.id, topicId));
     if (!topic) return NextResponse.json({ error: `Unknown essay topic: ${topicId}` }, { status: 404 });
 
-    const feedback = await gradeEssay({ topicText: topic.topicText, essayText });
+    if (gradeNow === true) {
+      const feedback = await gradeEssay({ topicText: topic.topicText, essayText });
+      const [saved] = await db
+        .insert(essayAttempts)
+        .values({ userId, essayTopicId: topicId, essayText, score: feedback.score, feedback })
+        .returning();
+      await recordMissionSafe(userId, "practice");
+      if (isPassingScore(feedback.score)) await recordMissionSafe(userId, "pass");
+      return NextResponse.json({ id: saved.id, feedback });
+    }
 
     const [saved] = await db
       .insert(essayAttempts)
-      .values({ userId, essayTopicId: topicId, essayText, score: feedback.score, feedback })
+      .values({ userId, essayTopicId: topicId, essayText, score: null, feedback: null })
       .returning();
 
     await recordMissionSafe(userId, "practice");
-    if (isPassingScore(feedback.score)) await recordMissionSafe(userId, "pass");
 
-    return NextResponse.json({ id: saved.id, feedback });
+    return NextResponse.json({ id: saved.id, pending: true });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });
