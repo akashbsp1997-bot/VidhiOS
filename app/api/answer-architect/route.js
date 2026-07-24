@@ -17,24 +17,15 @@
 import { NextResponse } from "next/server";
 import { sql, inArray } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
-import { lessonModules, subtopics, subjects } from "../../../db/schema.js";
+import { lessonModules } from "../../../db/schema.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
-import { loadUnlockedSubjectIds } from "../../../lib/adaptive/subjectUnlockState.js";
-import { isGatedCategory } from "../../../lib/adaptive/subjectUnlocks.js";
+import { unlockedSubjectChecker, subjectIdBySubtopicId } from "../../../lib/adaptive/unlockedContentPool.js";
 import { bulletLines } from "../../../lib/text/bullets.js";
 import { recordMissionSafe } from "../../../lib/gamification/missions.js";
+import { shuffled } from "../../../lib/utils/shuffle.js";
 
 const MAX_CORRECT_BULLETS = 5;
 const DISTRACTOR_COUNT = 3;
-
-function shuffled(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
 
 // Every (moduleId, exerciseIndex) pair across every unlocked-for-this-user
 // module that has at least one usable bullet in its modelAnswer.
@@ -46,21 +37,12 @@ async function eligibleExercises(userId) {
   if (!candidateModules.length) return [];
 
   const subtopicIds = [...new Set(candidateModules.map((m) => m.subtopicId))];
-  const subtopicRows = await db.select({ id: subtopics.id, subjectId: subtopics.subjectId }).from(subtopics).where(inArray(subtopics.id, subtopicIds));
-  const subjectBySubtopic = Object.fromEntries(subtopicRows.map((s) => [s.id, s.subjectId]));
-
-  const { unlockedGsIds, optionalSubjectId } = await loadUnlockedSubjectIds(userId);
-  const allSubjectRows = await db.select({ id: subjects.id, category: subjects.category }).from(subjects);
-  const categoryBySubject = Object.fromEntries(allSubjectRows.map((s) => [s.id, s.category]));
-  function subjectUnlockedForUser(subjectId) {
-    const category = categoryBySubject[subjectId];
-    if (!isGatedCategory(category)) return true;
-    return unlockedGsIds.includes(subjectId) || optionalSubjectId === subjectId;
-  }
+  const subjectBySubtopic = await subjectIdBySubtopicId(subtopicIds);
+  const isUnlocked = await unlockedSubjectChecker(userId);
 
   const out = [];
   for (const m of candidateModules) {
-    if (!subjectUnlockedForUser(subjectBySubtopic[m.subtopicId])) continue;
+    if (!isUnlocked(subjectBySubtopic[m.subtopicId])) continue;
     (m.exercises || []).forEach((ex, exerciseIndex) => {
       if (bulletLines(ex.modelAnswer || "").length > 0) out.push({ moduleId: m.id, exerciseIndex, prompt: ex.prompt, modelAnswer: ex.modelAnswer });
     });
