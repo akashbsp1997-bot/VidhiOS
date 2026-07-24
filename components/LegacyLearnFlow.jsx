@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import PracticeSession from "./PracticeSession.jsx";
 import LockdownNotice from "./LockdownNotice.jsx";
+import { bulletLines } from "../lib/text/bullets.js";
 
 // The pre-module-system Teach/Grasp/Remember/Test flow (one AI-generated
 // lesson covering the WHOLE subtopic, via app/api/lesson/route.js and the
@@ -22,17 +23,6 @@ const STAGES = [
 ];
 
 const MAX_STAGE_FETCH_ITERATIONS = 5;
-
-// See components/ModuleLearnFlow.jsx's identical helper for why this
-// gracefully handles both the current bullet-per-line format
-// (lib/ai/generateLesson.js's buildCoreSystem) and older cached rows still
-// stored as "\n\n"-separated paragraphs.
-function bulletLines(text) {
-  return text
-    .split("\n")
-    .map((line) => line.trim().replace(/^[-•]\s*/, ""))
-    .filter(Boolean);
-}
 
 async function safeFetchJson(url, options) {
   const res = await fetch(url, options);
