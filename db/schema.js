@@ -16,6 +16,7 @@ import {
   primaryKey,
   unique,
 } from "drizzle-orm/pg-core";
+import { compressedText } from "../lib/db/compressedText.js";
 
 // Supabase Auth's own schema/table -- referenced, never created/migrated by us.
 // drizzle-kit introspects and skips it since it already exists in Supabase.
@@ -126,7 +127,10 @@ export const sources = pgTable("sources", {
   storageUploadId: integer("storage_upload_id").references(() => ingestUploads.id),
   // --- cache, populated by lib/sources/fetchAndCache.js ---
   fetchedAt: timestamp("fetched_at"),
-  extractedText: text("extracted_text"), // truncated plain-text extract, ~8-10k chars
+  // Stored gzip-compressed (see lib/db/compressedText.js) -- transparent to
+  // every reader, still a plain JS string once selected. Truncated extract,
+  // ~8-10k chars pre-compression.
+  extractedText: compressedText("extracted_text"),
   status: text("status").notNull().default("pending"), // 'pending' | 'ok' | 'error'
   errorMsg: text("error_msg"),
 });
@@ -158,7 +162,11 @@ export const ingestUploads = pgTable("ingest_uploads", {
   contentHash: text("content_hash").notNull(), // sha256 of the raw PDF bytes -- exact-duplicate detection
   pageCount: integer("page_count"), // from pdf-parse; null until extraction runs
   extractedCharCount: integer("extracted_char_count"),
-  extractedText: text("extracted_text"), // full extracted text, NOT capped like sources.extractedText
+  // Stored gzip-compressed (see lib/db/compressedText.js), transparent to
+  // every reader. Full extracted text, NOT capped like sources.extractedText
+  // -- the biggest real compression win in this app, since a full PDF's
+  // text can run well past sources.extractedText's ~8-10k char cap.
+  extractedText: compressedText("extracted_text"),
   textTruncatedForAi: boolean("text_truncated_for_ai").notNull().default(false), // legacy -- see chunksProcessed/totalChunks, which superseded this once /api/ingest/structure started chunking instead of hard-truncating
   // A document longer than its docType's textCap (lib/ingest/config.js) gets
   // processed one chunk at a time -- one /api/ingest/structure call per

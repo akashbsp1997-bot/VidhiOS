@@ -69,6 +69,13 @@ export async function GET(request) {
       where table_schema = 'public'
         and table_name in ('subjects', 'ingest_uploads', 'ingest_items', 'lesson_modules', 'subject_unlocks', 'mock_tests', 'mock_test_questions', 'flashcard_reviews', 'current_affairs_items', 'interview_profiles', 'interview_sessions', 'essay_topics', 'essay_guides', 'essay_attempts', 'question_model_answers', 'player_state', 'player_items', 'daily_mission_log')
     `);
+    const compressedCols = await db.execute(sql`
+      select table_name, column_name, data_type
+      from information_schema.columns
+      where table_schema = 'public'
+        and column_name = 'extracted_text'
+        and table_name in ('sources', 'ingest_uploads')
+    `);
     const tableNames = tables.map((r) => r.table_name);
     return NextResponse.json({
       status: "ok",
@@ -82,6 +89,7 @@ export async function GET(request) {
       interviewTablesExist: tableNames.includes("interview_profiles") && tableNames.includes("interview_sessions"),
       essayTablesExist: tableNames.includes("essay_topics") && tableNames.includes("essay_guides") && tableNames.includes("essay_attempts"),
       questionModelAnswersTableExists: tableNames.includes("question_model_answers"),
+      extractedTextCompressed: compressedCols.every((r) => r.data_type === "bytea") && compressedCols.length === 2,
       gamificationTablesExist: tableNames.includes("player_state") && tableNames.includes("player_items") && tableNames.includes("daily_mission_log"),
       ingestTablesFound: tableNames.filter((n) => n.startsWith("ingest_")),
       newColumnsFound: cols.map((r) => `${r.table_name}.${r.column_name}`),
