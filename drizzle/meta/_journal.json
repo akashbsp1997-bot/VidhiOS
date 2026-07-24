@@ -190,6 +190,13 @@
       "when": 1784897287757,
       "tag": "0026_charming_brood",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1784902279331,
+      "tag": "0027_wet_hannibal_king",
+      "breakpoints": true
     }
   ]
 }

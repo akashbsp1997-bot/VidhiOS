@@ -868,3 +868,24 @@ export const dailyResultsDigests = pgTable(
     pk: primaryKey({ columns: [table.userId, table.date] }),
   })
 );
+
+/**
+ * One row per CSAT quant subtopic -- a short "explanation + shortcuts"
+ * refresher shown above each question in the Quant Puzzle Chain (see
+ * components/QuantPuzzleChain.jsx and app/api/quant-lesson/route.js).
+ * Deliberately NOT lessonModules: that table's module-locking/stage
+ * machinery is exactly the heavy Teach->Grasp->Remember->Test system CSAT
+ * quant was built to bypass, and its shape (examples/exercises/mnemonic/
+ * image/pyqId) doesn't fit "short refresher" well. Generated once, lazily,
+ * on first request for a subtopic that doesn't have a row yet, and reused by
+ * every student who reaches it after -- same "generate once, cache forever"
+ * pattern as monthly_digests/essay_guides.
+ */
+export const quantLessons = pgTable("quant_lessons", {
+  subtopicId: text("subtopic_id")
+    .primaryKey()
+    .references(() => subtopics.id),
+  explanation: text("explanation").notNull(), // bullet-per-line, same style as lessonModules.teachContent
+  shortcuts: jsonb("shortcuts").notNull().default([]), // flat array of short trick/shortcut strings
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+});
