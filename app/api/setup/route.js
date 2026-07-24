@@ -18,6 +18,7 @@ import { essayTopicsSeed } from "../../../db/seed/essay-topics.js";
 import { politicalScienceSyllabusSeed } from "../../../db/seed/political-science-syllabus.js";
 import { ncertSourcesSeed } from "../../../db/seed/ncert-sources.js";
 import { psirRecommendedBooksSeed } from "../../../db/seed/psir-recommended-books.js";
+import { govtUniversitySourcesSeed } from "../../../db/seed/govt-university-sources.js";
 import { csatQuantSyllabusSeed } from "../../../db/seed/csat-quant-syllabus.js";
 
 // syllabusSeed/pyqsSeed (Law Optional) predate the subjectId column and
@@ -40,7 +41,7 @@ const allPyqsSeed = [
   ...gs2PyqsSeed,
   ...politicalSciencePyqsSeed,
 ];
-const allSourcesSeed = [...sourcesSeed, ...ncertSourcesSeed, ...psirRecommendedBooksSeed];
+const allSourcesSeed = [...sourcesSeed, ...ncertSourcesSeed, ...psirRecommendedBooksSeed, ...govtUniversitySourcesSeed];
 
 // Table/column creation used to live here as hand-written DDL, run on every
 // visit to this route. As of Phase 1 (see docs/ARCHITECTURE.md and the
