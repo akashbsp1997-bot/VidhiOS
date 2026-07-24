@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import LockdownNotice from "./LockdownNotice.jsx";
 
 const CATEGORY_LABEL = { background: "Background", optional: "Optional subject", "current-affairs": "Current affairs", situational: "Situational" };
 const PROFILE_FIELDS = [
@@ -23,6 +24,7 @@ export default function InterviewPrep({ viewSessionId }) {
   const [session, setSession] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
+  const [genLockdown, setGenLockdown] = useState(null);
   const noteTimers = useRef({});
 
   useEffect(() => {
@@ -54,10 +56,12 @@ export default function InterviewPrep({ viewSessionId }) {
   function generateSession() {
     setGenerating(true);
     setError(null);
+    setGenLockdown(null);
     fetch("/api/interview-sessions", { method: "POST" })
       .then((r) => r.json())
       .then((d) => {
-        if (d.error) setError(d.error);
+        if (d.error === "locked_down") setGenLockdown(d);
+        else if (d.error) setError(d.error);
         else setSession({ ...d, notes: {} });
       })
       .catch((e) => setError(e.message))
@@ -136,9 +140,13 @@ export default function InterviewPrep({ viewSessionId }) {
       </div>
 
       <div className="card">
-        <button className="btn btn-primary" onClick={generateSession} disabled={generating}>
-          {generating ? "Building your question set…" : "Generate a mock interview →"}
-        </button>
+        {genLockdown ? (
+          <LockdownNotice lockdown={genLockdown} />
+        ) : (
+          <button className="btn btn-primary" onClick={generateSession} disabled={generating}>
+            {generating ? "Building your question set…" : "Generate a mock interview →"}
+          </button>
+        )}
       </div>
 
       {history && history.length > 0 && (

@@ -12,7 +12,7 @@ import { subtopics, mastery } from "../../../db/schema.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { PAPER_TILES, isOptionalTile } from "../../../lib/subjects/papers.js";
 import { GS_UNLOCK_ORDER } from "../../../lib/adaptive/subjectUnlocks.js";
-import { loadUnlockedSubjectIds, hasStartedOnboarding, maybeUnlockNextGsSubject } from "../../../lib/adaptive/subjectUnlockState.js";
+import { loadUnlockedSubjectIds, hasStartedOnboarding, maybeUnlockNextGsSubject, checkLockdown } from "../../../lib/adaptive/subjectUnlockState.js";
 
 export async function GET() {
   const userId = await getSessionUserId();
@@ -26,6 +26,10 @@ export async function GET() {
 
     const onboardingComplete = await hasStartedOnboarding(userId);
     const { unlockedGsIds, optionalSubjectId } = await loadUnlockedSubjectIds(userId);
+    // Dashboard-visible reason for why Teach/MCQ/mock tests/essay/interview
+    // are about to 403 on every other route -- see checkLockdown's header
+    // for exactly which routes this affects (and doesn't).
+    const lockdown = onboardingComplete ? await checkLockdown(userId) : null;
 
     const allSubtopics = await db.select({ id: subtopics.id, subjectId: subtopics.subjectId, paper: subtopics.paper }).from(subtopics);
     const allMastery = await db
@@ -53,7 +57,7 @@ export async function GET() {
       return { ...tile, subtopicCount, avgMasteryScore, subjectLocked };
     });
 
-    return NextResponse.json({ tiles, onboardingComplete, unlockedGsIds, optionalSubjectId, newlyUnlockedGsSubjectId });
+    return NextResponse.json({ tiles, onboardingComplete, unlockedGsIds, optionalSubjectId, newlyUnlockedGsSubjectId, lockdown });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });

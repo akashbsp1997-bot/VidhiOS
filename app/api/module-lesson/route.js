@@ -24,7 +24,8 @@ import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
 import { loadPaperLockMap } from "../../../lib/adaptive/lockState.js";
 import { computeModuleLocks, isStageUnlocked, validateStageAdvance } from "../../../lib/adaptive/unlocks.js";
-import { isSubjectUnlocked } from "../../../lib/adaptive/subjectUnlockState.js";
+import { isSubjectUnlocked, checkLockdown } from "../../../lib/adaptive/subjectUnlockState.js";
+import { recordMissionSafe } from "../../../lib/gamification/missions.js";
 
 const VALID_STAGES = ["teach", "grasp", "remember", "test"];
 
@@ -90,6 +91,13 @@ async function buildModulesSummary(moduleRows, moduleLocks) {
       pyqMarks: anchor?.marks ?? null,
       locked: lock?.locked ?? false,
       lockReason: lock?.reason ?? null,
+      // Same requiredMasteryPct/currentMasteryPct on every locked module in
+      // this subtopic (computeModuleLocks derives both from the one
+      // subtopic-wide masteryScore) -- carried per-module rather than once
+      // at the top level so ModuleTestPanel's "Next module" button can show
+      // *why* module N+1 specifically is locked without a second fetch.
+      requiredMasteryPct: lock?.requiredMasteryPct ?? null,
+      currentMasteryPct: lock?.currentMasteryPct ?? null,
     };
   });
 }
@@ -131,6 +139,9 @@ export async function GET(request) {
   if (!subtopicId) return NextResponse.json({ error: "subtopicId is required" }, { status: 400 });
 
   try {
+    const lockdown = await checkLockdown(userId);
+    if (lockdown) return NextResponse.json({ error: "locked_down", ...lockdown }, { status: 403 });
+
     const subtopicRows = await db.select().from(subtopics).where(eq(subtopics.id, subtopicId));
     const subtopicRow = subtopicRows[0];
     if (!subtopicRow) return NextResponse.json({ error: `Unknown subtopic: ${subtopicId}` }, { status: 404 });
@@ -233,6 +244,10 @@ export async function GET(request) {
     if (!isStageUnlocked(stage, unlockedStage)) {
       return NextResponse.json({ error: "stage_locked", requiredStage: unlockedStage }, { status: 403 });
     }
+
+    // Only recorded once every lock check above has passed -- a 403'd
+    // request never counts as "engaged with learning content today."
+    await recordMissionSafe(userId, "learn");
 
     const phase = nextMissingPhase(row, STAGE_REQUIRES[stage] ?? [], stage, force);
     const modulesSummary = await buildModulesSummary(modules, moduleLocks);

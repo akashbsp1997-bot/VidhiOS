@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import LockdownNotice from "./LockdownNotice.jsx";
 
 const SIZE_LABEL = { sectional: "Sectional (5 questions, 45 min)", full: "Full paper (20 questions, 3 hours)" };
 
@@ -25,6 +26,7 @@ export default function MockTestFlow({ viewTestId }) {
   const [chosenSubject, setChosenSubject] = useState("");
   const [chosenSize, setChosenSize] = useState("sectional");
   const [startError, setStartError] = useState(null);
+  const [startLockdown, setStartLockdown] = useState(null);
   const [starting, setStarting] = useState(false);
 
   const [test, setTest] = useState(null); // { mockTestId, subjectId, size, totalMarks, durationMinutes, questions }
@@ -66,6 +68,7 @@ export default function MockTestFlow({ viewTestId }) {
   function startTest() {
     setStarting(true);
     setStartError(null);
+    setStartLockdown(null);
     fetch("/api/mock-tests", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -73,6 +76,10 @@ export default function MockTestFlow({ viewTestId }) {
     })
       .then((r) => r.json())
       .then((data) => {
+        if (data.error === "locked_down") {
+          setStartLockdown(data);
+          return;
+        }
         if (data.error) {
           setStartError(data.error);
           return;
@@ -180,6 +187,11 @@ export default function MockTestFlow({ viewTestId }) {
                   </button>
                 ))}
               </div>
+              {startLockdown && (
+                <div style={{ marginBottom: 10 }}>
+                  <LockdownNotice lockdown={startLockdown} />
+                </div>
+              )}
               {startError && <div className="error-box" style={{ marginBottom: 10 }}>{startError}</div>}
               <button className="btn btn-primary" onClick={startTest} disabled={starting || !chosenSubject}>
                 {starting ? "Building your paper…" : "Start test →"}

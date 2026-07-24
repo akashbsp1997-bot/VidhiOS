@@ -30,6 +30,8 @@ import { loadPaperLockMap } from "../../../lib/adaptive/lockState.js";
 import { computeModuleLocks, isStageUnlocked } from "../../../lib/adaptive/unlocks.js";
 import { isSubjectUnlocked, loadUnlockedSubjectIds } from "../../../lib/adaptive/subjectUnlockState.js";
 import { isGatedCategory } from "../../../lib/adaptive/subjectUnlocks.js";
+import { isPassingScore } from "../../../lib/adaptive/scoring.js";
+import { recordMissionSafe } from "../../../lib/gamification/missions.js";
 
 // A module-level Test (components/ModuleTestPanel.jsx) always wants exactly
 // its one question for a known subtopic+module, never the adaptive engine's
@@ -442,9 +444,14 @@ export async function POST(request) {
       });
     }
 
+    const practiceMission = await recordMissionSafe(userId, "practice");
+    const passMission = isPassingScore(feedback.score) ? await recordMissionSafe(userId, "pass") : null;
+    const missionRewards = [practiceMission, passMission].filter((m) => m?.newlyCompleted).map((m) => m.item);
+
     return NextResponse.json({
       feedback,
       mastery: { score: newMasteryScore, tier: newTier, attemptsCount: attemptsSoFar + 1, tierHeldBack },
+      missionRewards,
     });
   } catch (err) {
     console.error(err);

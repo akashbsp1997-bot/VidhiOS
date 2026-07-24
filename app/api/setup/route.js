@@ -17,6 +17,9 @@ import { gs4SyllabusSeed } from "../../../db/seed/gs4-syllabus.js";
 import { essayTopicsSeed } from "../../../db/seed/essay-topics.js";
 import { politicalScienceSyllabusSeed } from "../../../db/seed/political-science-syllabus.js";
 import { ncertSourcesSeed } from "../../../db/seed/ncert-sources.js";
+import { psirRecommendedBooksSeed } from "../../../db/seed/psir-recommended-books.js";
+import { govtUniversitySourcesSeed } from "../../../db/seed/govt-university-sources.js";
+import { csatQuantSyllabusSeed } from "../../../db/seed/csat-quant-syllabus.js";
 
 // syllabusSeed/pyqsSeed (Law Optional) predate the subjectId column and
 // don't carry it on each row (it was backfilled once, directly in the DB,
@@ -31,13 +34,14 @@ const allSubtopicsSeed = [
   ...gs1SyllabusSeed,
   ...gs4SyllabusSeed,
   ...politicalScienceSyllabusSeed,
+  ...csatQuantSyllabusSeed,
 ];
 const allPyqsSeed = [
   ...pyqsSeed.map((p) => ({ ...p, subjectId: "law-optional" })),
   ...gs2PyqsSeed,
   ...politicalSciencePyqsSeed,
 ];
-const allSourcesSeed = [...sourcesSeed, ...ncertSourcesSeed];
+const allSourcesSeed = [...sourcesSeed, ...ncertSourcesSeed, ...psirRecommendedBooksSeed, ...govtUniversitySourcesSeed];
 
 // Table/column creation used to live here as hand-written DDL, run on every
 // visit to this route. As of Phase 1 (see docs/ARCHITECTURE.md and the

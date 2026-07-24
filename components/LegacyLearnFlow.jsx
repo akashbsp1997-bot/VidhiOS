@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import PracticeSession from "./PracticeSession.jsx";
+import LockdownNotice from "./LockdownNotice.jsx";
 
 // The pre-module-system Teach/Grasp/Remember/Test flow (one AI-generated
 // lesson covering the WHOLE subtopic, via app/api/lesson/route.js and the
@@ -21,6 +22,17 @@ const STAGES = [
 ];
 
 const MAX_STAGE_FETCH_ITERATIONS = 5;
+
+// See components/ModuleLearnFlow.jsx's identical helper for why this
+// gracefully handles both the current bullet-per-line format
+// (lib/ai/generateLesson.js's buildCoreSystem) and older cached rows still
+// stored as "\n\n"-separated paragraphs.
+function bulletLines(text) {
+  return text
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-•]\s*/, ""))
+    .filter(Boolean);
+}
 
 async function safeFetchJson(url, options) {
   const res = await fetch(url, options);
@@ -58,7 +70,11 @@ function ExerciseCard({ ex }) {
           {ex.hint ? `Hint: ${ex.hint} — show answer` : "Show model answer"}
         </button>
       ) : (
-        <div className="exercise-answer">{ex.modelAnswer}</div>
+        <ul className="exercise-answer" style={{ paddingLeft: 18, marginBottom: 0 }}>
+          {bulletLines(ex.modelAnswer).map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -116,6 +132,7 @@ function StageModules({ modules, moduleIndex, setModuleIndex, onComplete, comple
 export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
   const [lesson, setLesson] = useState(null);
   const [error, setError] = useState(null);
+  const [lockdown, setLockdown] = useState(null);
   const [stage, setStage] = useState("teach");
   const [loadingStage, setLoadingStage] = useState(null);
   const [moduleIndex, setModuleIndex] = useState(0);
@@ -126,6 +143,10 @@ export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
       for (let i = 0; i < MAX_STAGE_FETCH_ITERATIONS; i++) {
         const url = `/api/lesson?subtopicId=${encodeURIComponent(subtopicId)}&stage=${stageKey}${force && i === 0 ? "&force=true" : ""}`;
         const data = await safeFetchJson(url);
+        if (data.error === "locked_down") {
+          setLockdown(data);
+          return;
+        }
         if (data.error) {
           setError(data.error);
           return;
@@ -144,6 +165,7 @@ export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
   useEffect(() => {
     setLesson(null);
     setError(null);
+    setLockdown(null);
     setStage("teach");
     setModuleIndex(0);
     ensureStageReady("teach");
@@ -161,6 +183,7 @@ export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
     ensureStageReady(next);
   }
 
+  if (lockdown) return <LockdownNotice lockdown={lockdown} />;
   if (error) return <div className="error-box">{error}</div>;
   if (!lesson) return <div className="loading">{"Preparing this lesson… (first visit generates it, a few seconds)"}</div>;
 
@@ -170,11 +193,15 @@ export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
     {
       key: "concept",
       label: "Concept",
-      node: lesson.teachContent.split("\n\n").map((para, i) => (
-        <p key={i} style={{ fontSize: 14.5, lineHeight: 1.6 }}>
-          {para}
-        </p>
-      )),
+      node: (
+        <ul style={{ paddingLeft: 20, fontSize: 14.5, lineHeight: 1.7 }}>
+          {bulletLines(lesson.teachContent).map((line, i) => (
+            <li key={i} style={{ marginBottom: 6 }}>
+              {line}
+            </li>
+          ))}
+        </ul>
+      ),
     },
     lesson.keyProvisions?.length > 0 && {
       key: "provisions",
@@ -225,7 +252,11 @@ export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
           node: lesson.examples.map((ex, i) => (
             <div className="example-card" key={i}>
               <div className="example-title">{ex.title}</div>
-              <div className="example-body">{ex.body}</div>
+              <ul className="example-body" style={{ margin: 0, paddingLeft: 18 }}>
+                {bulletLines(ex.body).map((line, j) => (
+                  <li key={j}>{line}</li>
+                ))}
+              </ul>
             </div>
           )),
         },
@@ -249,14 +280,26 @@ export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
           node: lesson.perspectives.map((p, i) => (
             <div className="example-card" key={i}>
               <div className="example-title">{p.angle}</div>
-              <div className="example-body">{p.explanation}</div>
+              <ul className="example-body" style={{ margin: 0, paddingLeft: 18 }}>
+                {bulletLines(p.explanation).map((line, j) => (
+                  <li key={j}>{line}</li>
+                ))}
+              </ul>
             </div>
           )),
         },
         lesson.answerFramework && {
           key: "framework",
           label: "How to answer this",
-          node: <p style={{ fontSize: 14, lineHeight: 1.6 }}>{lesson.answerFramework}</p>,
+          node: (
+            <ul style={{ paddingLeft: 20, fontSize: 14, lineHeight: 1.7 }}>
+              {bulletLines(lesson.answerFramework).map((line, i) => (
+                <li key={i} style={{ marginBottom: 6 }}>
+                  {line}
+                </li>
+              ))}
+            </ul>
+          ),
         },
       ].filter(Boolean)
     : [];

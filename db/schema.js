@@ -16,6 +16,7 @@ import {
   primaryKey,
   unique,
 } from "drizzle-orm/pg-core";
+import { compressedText } from "../lib/db/compressedText.js";
 
 // Supabase Auth's own schema/table -- referenced, never created/migrated by us.
 // drizzle-kit introspects and skips it since it already exists in Supabase.
@@ -126,7 +127,10 @@ export const sources = pgTable("sources", {
   storageUploadId: integer("storage_upload_id").references(() => ingestUploads.id),
   // --- cache, populated by lib/sources/fetchAndCache.js ---
   fetchedAt: timestamp("fetched_at"),
-  extractedText: text("extracted_text"), // truncated plain-text extract, ~8-10k chars
+  // Stored gzip-compressed (see lib/db/compressedText.js) -- transparent to
+  // every reader, still a plain JS string once selected. Truncated extract,
+  // ~8-10k chars pre-compression.
+  extractedText: compressedText("extracted_text"),
   status: text("status").notNull().default("pending"), // 'pending' | 'ok' | 'error'
   errorMsg: text("error_msg"),
 });
@@ -158,7 +162,11 @@ export const ingestUploads = pgTable("ingest_uploads", {
   contentHash: text("content_hash").notNull(), // sha256 of the raw PDF bytes -- exact-duplicate detection
   pageCount: integer("page_count"), // from pdf-parse; null until extraction runs
   extractedCharCount: integer("extracted_char_count"),
-  extractedText: text("extracted_text"), // full extracted text, NOT capped like sources.extractedText
+  // Stored gzip-compressed (see lib/db/compressedText.js), transparent to
+  // every reader. Full extracted text, NOT capped like sources.extractedText
+  // -- the biggest real compression win in this app, since a full PDF's
+  // text can run well past sources.extractedText's ~8-10k char cap.
+  extractedText: compressedText("extracted_text"),
   textTruncatedForAi: boolean("text_truncated_for_ai").notNull().default(false), // legacy -- see chunksProcessed/totalChunks, which superseded this once /api/ingest/structure started chunking instead of hard-truncating
   // A document longer than its docType's textCap (lib/ingest/config.js) gets
   // processed one chunk at a time -- one /api/ingest/structure call per
@@ -570,9 +578,94 @@ export const mastery = pgTable(
     // signals instead of conflating them.
     notes: text("notes").notNull().default(""),
     selfStatus: text("self_status").notNull().default("not-started"), // 'not-started' | 'in-progress' | 'done'
+    // Set only by redeeming an 'unlock_pass' item (see playerItems below) on
+    // this subtopic -- while in the future, lib/adaptive/lockState.js's
+    // loadPaperLockMap treats this subtopic as unlocked regardless of the
+    // real subtopic-chain mastery check, i.e. "early access to a locked
+    // topic." Null for every subtopic no pass was ever spent on. Deliberately
+    // subtopic-chain-only, not module-chain -- redeeming a pass to skip
+    // straight to a module deep inside an unstudied subtopic wouldn't be
+    // "early access to a topic," it'd be skipping the topic entirely.
+    unlockOverrideUntil: timestamp("unlock_override_until"),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId, table.subtopicId] }),
+  })
+);
+
+/**
+ * One row per user -- the account-wide gamification state layered on top of
+ * per-subtopic mastery (that stays the real learning signal; this is the
+ * game-feel layer on top of it). xp accumulates from daily missions
+ * (see dailyMissionLog below) and never decreases. streak fields track
+ * consecutive calendar days with at least one completed mission --
+ * lastActivityDate ('YYYY-MM-DD', UTC) is the cheap way to tell "already
+ * counted today" from "a new day, extend or reset the streak" without a
+ * second query. lockdownGraceUntil is redeemed from a 'lockdown_grace' item
+ * (see playerItems) -- while in the future, lib/adaptive/subjectUnlockState.js's
+ * checkLockdown treats the student as not locked down regardless of the
+ * real missed-checkpoint state.
+ */
+export const playerState = pgTable("player_state", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => authUsers.id),
+  xp: integer("xp").notNull().default(0),
+  currentStreakDays: integer("current_streak_days").notNull().default(0),
+  longestStreakDays: integer("longest_streak_days").notNull().default(0),
+  lastActivityDate: text("last_activity_date"), // 'YYYY-MM-DD', null before the first mission is ever completed
+  lockdownGraceUntil: timestamp("lockdown_grace_until"),
+});
+
+/**
+ * Inventory of special-access items earned from completed daily missions
+ * (see dailyMissionLog) -- one row per item, never merged into a stacked
+ * count, so earnedAt/usedAt stay individually meaningful (e.g. "which of my
+ * 3 unlock passes is this, and when did I get it"). itemType decides what
+ * redeeming it actually does (see mastery.unlockOverrideUntil and
+ * playerState.lockdownGraceUntil above for the two functional types);
+ * 'cosmetic_badge' has no redemption step -- earning it IS the reward, it
+ * just sits in the trophy case permanently (usedAt stays null forever for
+ * this type; lib/gamification/items.js's listUsableItems filters by
+ * itemType, not usedAt alone, so a badge never shows up as "actionable").
+ */
+export const playerItems = pgTable("player_items", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => authUsers.id),
+  itemType: text("item_type").notNull(), // 'unlock_pass' | 'lockdown_grace' | 'cosmetic_badge'
+  label: text("label").notNull(), // display name, e.g. "48h Early Access Pass", "Streak Saver — Day 7"
+  earnedFromMissionKey: text("earned_from_mission_key"), // 'learn' | 'practice' | 'pass', which daily mission granted this
+  earnedAt: timestamp("earned_at").notNull().defaultNow(),
+  usedAt: timestamp("used_at"), // null = still in inventory, unused
+});
+
+/**
+ * One row per (user, calendar day, mission) completed -- the composite PK
+ * is what makes "only reward the first completion per day" a plain
+ * onConflictDoNothing insert rather than a read-then-write race. The three
+ * missionKeys are fixed, not configurable content: 'learn' (viewed/generated
+ * Teach content for at least one subtopic/module today), 'practice'
+ * (submitted at least one graded attempt today, any format), 'pass' (scored
+ * at or above lib/adaptive/scoring.js's PASSING_SCORE_PCT on an attempt
+ * today). rewardItemId is nullable only because it's set in a second write
+ * right after the reward is rolled (see lib/gamification/missions.js) --
+ * every real completion ends up with one.
+ */
+export const dailyMissionLog = pgTable(
+  "daily_mission_log",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id),
+    missionDate: text("mission_date").notNull(), // 'YYYY-MM-DD', UTC
+    missionKey: text("mission_key").notNull(), // 'learn' | 'practice' | 'pass'
+    completedAt: timestamp("completed_at").notNull().defaultNow(),
+    rewardItemId: integer("reward_item_id").references(() => playerItems.id),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.missionDate, table.missionKey] }),
   })
 );
 
@@ -698,5 +791,49 @@ export const lessonModules = pgTable(
   },
   (table) => ({
     subtopicOrderUnique: unique("lesson_modules_subtopic_order_unique").on(table.subtopicId, table.orderIndex),
+  })
+);
+
+/**
+ * One row per (user, 30-day window since plan start) -- the "anchor"
+ * mastery percentage a window's trajectory target is computed from (see
+ * lib/adaptive/pacing.js). Written once, lazily, the first time
+ * lib/adaptive/paceState.js's getPaceStatus is asked about a window that
+ * doesn't have a row yet; never updated after that -- a window's target is
+ * fixed once set, which is what makes "re-anchor every 30 days" a real,
+ * discrete recalibration event rather than a continuously-drifting number.
+ * windowIndex 0's anchor is always the fixed PACE_START_MASTERY floor, not
+ * measured; every later window's anchor is whatever mastery was actually
+ * observed at that point, which is the "based on user usage" adjustment.
+ */
+/**
+ * One row per calendar month ('YYYY-MM') -- an AI-synthesized, theme-
+ * grouped overview of that month's already-stored current_affairs_items
+ * (see lib/ai/monthlyDigest.js). Generated once, lazily, on first request
+ * for a month that doesn't have a row yet, and reused for every student who
+ * views it after -- same "generate once, cache forever" pattern as
+ * essay_guides/question_model_answers, not a per-student cost.
+ */
+export const monthlyDigests = pgTable("monthly_digests", {
+  month: text("month").primaryKey(), // 'YYYY-MM'
+  overview: text("overview").notNull(),
+  themes: jsonb("themes").notNull().default([]), // [{theme, points: string[]}]
+  itemCount: integer("item_count").notNull(), // how many daily items fed this digest, for display ("built from N articles")
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+});
+
+export const paceCheckpoints = pgTable(
+  "pace_checkpoints",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id),
+    windowIndex: integer("window_index").notNull(), // 0-based, floor(dayNumber / 30)
+    windowStartDay: integer("window_start_day").notNull(), // windowIndex * 30, denormalized for cheap reads
+    anchorMasteryPct: real("anchor_mastery_pct").notNull(), // 0-100
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.windowIndex] }),
   })
 );

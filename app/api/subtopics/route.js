@@ -6,7 +6,7 @@ import { subtopics, mastery, sources, subjects, pyqs } from "../../../db/schema.
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { computeDifficultyScore, orderSubtopicsWithinPaper, computeSubtopicLocks } from "../../../lib/adaptive/unlocks.js";
 import { isGatedCategory } from "../../../lib/adaptive/subjectUnlocks.js";
-import { loadUnlockedSubjectIds } from "../../../lib/adaptive/subjectUnlockState.js";
+import { loadUnlockedSubjectIds, checkLockdown } from "../../../lib/adaptive/subjectUnlockState.js";
 
 export async function GET(request) {
   const userId = await getSessionUserId();
@@ -112,7 +112,13 @@ export async function GET(request) {
     }
     result.sort((a, b) => a.paper - b.paper || a.difficultyScore - b.difficultyScore || b.pyqFrequency - a.pyqFrequency || a.id.localeCompare(b.id));
 
-    return NextResponse.json({ subtopics: result });
+    // Surfaced here (rather than only as a 403 on the routes it blocks) so
+    // the dashboard -- almost always the first thing loaded -- can explain
+    // up front why Teach/MCQ/mock tests/essay/interview are about to 403,
+    // instead of a student discovering it one blocked click at a time.
+    const lockdown = await checkLockdown(userId);
+
+    return NextResponse.json({ subtopics: result, lockdown });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });

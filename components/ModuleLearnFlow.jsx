@@ -2,9 +2,26 @@
 
 import { useEffect, useState } from "react";
 import ModuleTestPanel from "./ModuleTestPanel.jsx";
+import LockdownNotice from "./LockdownNotice.jsx";
 import { isStageUnlocked } from "../lib/adaptive/unlocks.js";
 
 const MAX_STAGE_FETCH_ITERATIONS = 5;
+
+// teachContent is now generated as one bullet point per line (see
+// lib/ai/generateModules.js's buildModuleTeachSystem), each line optionally
+// prefixed "- " -- stripped here rather than asked to be omitted, so a line
+// that happens to start with a real hyphenated word isn't mangled. Also the
+// graceful fallback for content generated before this format existed:
+// older cached rows are full paragraphs separated by "\n\n", which
+// split("\n") + filter(Boolean) still turns into one list item per
+// paragraph (the blank line between them is exactly what's filtered out) --
+// readable either way, no migration needed for already-cached lessons.
+function bulletLines(text) {
+  return text
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-•]\s*/, ""))
+    .filter(Boolean);
+}
 
 async function safeFetchJson(url, options) {
   const res = await fetch(url, options);
@@ -112,6 +129,7 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
   const [panelIndex, setPanelIndex] = useState(0);
   const [loadingStage, setLoadingStage] = useState(null);
   const [error, setError] = useState(null);
+  const [lockdown, setLockdown] = useState(null);
   const [allModulesComplete, setAllModulesComplete] = useState(Boolean(initialData.allModulesComplete));
   // Sequential-completion high-water mark for the CURRENT module (see
   // lib/adaptive/unlocks.js's STAGE_ORDER) -- the server includes this in
@@ -137,6 +155,10 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
       for (let i = 0; i < MAX_STAGE_FETCH_ITERATIONS; i++) {
         const url = `/api/module-lesson?subtopicId=${encodeURIComponent(subtopicId)}&moduleIndex=${idx}&stage=${stageKey}${force && i === 0 ? "&force=true" : ""}`;
         const data = await safeFetchJson(url);
+        if (data.error === "locked_down") {
+          setLockdown(data);
+          return;
+        }
         if (data.error) {
           setError(data.error);
           return;
@@ -197,6 +219,7 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
     ensureModuleStageReady(idx, "teach");
   }
 
+  if (lockdown) return <LockdownNotice lockdown={lockdown} />;
   if (error) return <div className="error-box">{error}</div>;
 
   if (allModulesComplete) {
@@ -216,17 +239,22 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
   const currentModule = modules[moduleIndex];
   const practiceReady = Boolean(moduleContent.practiceGeneratedAt);
   const isLastModule = moduleIndex === modules.length - 1;
+  const nextModule = !isLastModule ? modules[moduleIndex + 1] : null;
 
   const teachPanels = moduleContent.teachContent
     ? [
         {
           key: "concept",
           label: "Concept",
-          node: moduleContent.teachContent.split("\n\n").map((para, i) => (
-            <p key={i} style={{ fontSize: 14.5, lineHeight: 1.6 }}>
-              {para}
-            </p>
-          )),
+          node: (
+            <ul style={{ paddingLeft: 20, fontSize: 14.5, lineHeight: 1.7 }}>
+              {bulletLines(moduleContent.teachContent).map((line, i) => (
+                <li key={i} style={{ marginBottom: 6 }}>
+                  {line}
+                </li>
+              ))}
+            </ul>
+          ),
         },
         moduleContent.keyPoints?.length > 0 && {
           key: "keypoints",
@@ -250,7 +278,11 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
           node: moduleContent.examples.map((ex, i) => (
             <div className="example-card" key={i}>
               <div className="example-title">{ex.title}</div>
-              <div className="example-body">{ex.body}</div>
+              <ul className="example-body" style={{ margin: 0, paddingLeft: 18 }}>
+                {bulletLines(ex.body).map((line, j) => (
+                  <li key={j}>{line}</li>
+                ))}
+              </ul>
             </div>
           )),
         },
@@ -260,7 +292,11 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
           node: moduleContent.exercises.map((ex, i) => (
             <div className="exercise-card" key={i}>
               <div className="exercise-prompt">{ex.prompt}</div>
-              <div className="exercise-answer">{ex.modelAnswer}</div>
+              <ul className="exercise-answer" style={{ paddingLeft: 18, marginBottom: 0 }}>
+                {bulletLines(ex.modelAnswer).map((line, j) => (
+                  <li key={j}>{line}</li>
+                ))}
+              </ul>
             </div>
           )),
         },
@@ -420,7 +456,10 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
             moduleId={currentModule.id}
             moduleTitle={currentModule.title}
             isLastModule={isLastModule}
+            nextModuleLocked={nextModule?.locked ? nextModule : null}
+            nextModuleLockReasonLabel={nextModule?.locked ? lockReasonLabel(nextModule.lockReason) : null}
             onNext={() => goToModule(moduleIndex + 1)}
+            onGraded={() => ensureModuleStageReady(moduleIndex, "test")}
           />
         </div>
       )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import LockdownNotice from "./LockdownNotice.jsx";
 
 function wordCount(text) {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
@@ -16,6 +17,7 @@ export default function EssayWorkspace() {
   const [mode, setMode] = useState("browse"); // 'browse' | 'write' | 'result'
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [lockdown, setLockdown] = useState(null);
 
   const [topic, setTopic] = useState(null);
   const [guide, setGuide] = useState(null);
@@ -59,7 +61,8 @@ export default function EssayWorkspace() {
     fetch(`/api/essay-guide?topicId=${encodeURIComponent(topic.id)}`)
       .then((r) => r.json())
       .then((d) => {
-        if (!d.error) {
+        if (d.error === "locked_down") setLockdown(d);
+        else if (!d.error) {
           setGuide(d);
           setShowGuide(true);
         }
@@ -76,7 +79,8 @@ export default function EssayWorkspace() {
     })
       .then((r) => r.json())
       .then((d) => {
-        if (d.error) setError(d.error);
+        if (d.error === "locked_down") setLockdown(d);
+        else if (d.error) setError(d.error);
         else {
           setResult(d.feedback);
           setMode("result");
@@ -86,6 +90,7 @@ export default function EssayWorkspace() {
       .finally(() => setSubmitting(false));
   }
 
+  if (lockdown) return <LockdownNotice lockdown={lockdown} />;
   if (error) return <div className="error-box">{error}</div>;
 
   if (mode === "browse") {
