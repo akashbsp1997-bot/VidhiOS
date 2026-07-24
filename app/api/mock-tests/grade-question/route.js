@@ -1,21 +1,20 @@
 // app/api/mock-tests/grade-question/route.js
 //
-// POST { mockTestId, mockTestQuestionId, answerText } -> grades ONE question
-// of a mock test (one AI call) and persists the answer + score + feedback.
-// Called once per question, in a client-side loop, when the student submits
-// the whole test -- never batched server-side, so a 20-question full mock
-// never risks one request exceeding the serverless time limit (same "at
-// most one AI phase per request" discipline as app/api/lesson).
-export const maxDuration = 60;
+// POST { mockTestId, mockTestQuestionId, answerText } -> SAVES one question's
+// answer only, no AI grading call here anymore (see the 2026-07-24
+// overnight-batch-grading change) -- grading happens later, in
+// app/api/cron/grade-daily-answers/route.js's nightly run, which also sums
+// mockTests.totalScore once every question in a test is graded (that used
+// to happen in ../finish/route.js at submit time; moved to the cron since
+// grading no longer finishes within the same request/day). Called once per
+// question, in a client-side loop, when the student submits the whole test.
+export const maxDuration = 30;
 
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "../../../../lib/db.js";
-import { mockTests, mockTestQuestions, subtopics } from "../../../../db/schema.js";
+import { mockTests, mockTestQuestions } from "../../../../db/schema.js";
 import { getSessionUserId } from "../../../../lib/supabase/server.js";
-import { getSubjectConfig } from "../../../../lib/subjects/config.js";
-import { gradeAnswer } from "../../../../lib/ai/grade.js";
-import { isPassingScore } from "../../../../lib/adaptive/scoring.js";
 import { recordMissionSafe } from "../../../../lib/gamification/missions.js";
 
 export async function POST(request) {
@@ -35,25 +34,11 @@ export async function POST(request) {
     const [question] = await db.select().from(mockTestQuestions).where(eq(mockTestQuestions.id, Number(mockTestQuestionId)));
     if (!question || question.mockTestId !== test.id) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const [subtopicRow] = await db.select().from(subtopics).where(eq(subtopics.id, question.subtopicId));
-
-    const feedback = await gradeAnswer({
-      questionText: question.questionText,
-      marks: question.marks,
-      subtopicText: subtopicRow?.topicText ?? question.subtopicId,
-      answerText,
-      subjectConfig: getSubjectConfig(test.subjectId),
-    });
-
-    await db
-      .update(mockTestQuestions)
-      .set({ answerText, score: feedback.score, feedback })
-      .where(eq(mockTestQuestions.id, question.id));
+    await db.update(mockTestQuestions).set({ answerText }).where(eq(mockTestQuestions.id, question.id));
 
     await recordMissionSafe(userId, "practice");
-    if (isPassingScore(feedback.score)) await recordMissionSafe(userId, "pass");
 
-    return NextResponse.json({ score: feedback.score, feedback });
+    return NextResponse.json({ saved: true });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: err.message }, { status: 500 });

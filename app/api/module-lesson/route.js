@@ -17,7 +17,8 @@ import { NextResponse } from "next/server";
 import { and, eq, asc, sql, inArray } from "drizzle-orm";
 import { db } from "../../../lib/db.js";
 import { subtopics, sources, lessons, lessonModules, mastery, subjects, pyqs } from "../../../db/schema.js";
-import { generateModulePlan, generateModulePlanFromPyqs, generateModuleTeach, generateModulePractice, generateModuleImage } from "../../../lib/ai/generateModules.js";
+import { generateModulePlan, generateModulePlanFromPyqs } from "../../../lib/ai/generateModules.js";
+import { ensureModuleStagePhase } from "../../../lib/adaptive/moduleContentReady.js";
 import { casesSeed } from "../../../db/seed/cases.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
@@ -266,31 +267,8 @@ export async function GET(request) {
       });
     }
 
-    // Only set for a PYQ-anchored module -- grounds Teach/Practice content
-    // in the real question's exact text (see lib/ai/generateModules.js's
-    // anti-leak instructions for why Practice's use of this is a hard
-    // requirement, not just flavor).
-    let pyqQuestionText;
-    if (row.pyqId) {
-      const anchorRows = await db.select().from(pyqs).where(eq(pyqs.id, row.pyqId));
-      pyqQuestionText = anchorRows[0]?.questionText;
-    }
-
     if (phase === "teach") {
-      const teach = await generateModuleTeach({
-        subtopicText: subtopicRow.topicText,
-        moduleTitle: row.title,
-        moduleScope: row.scopeNote,
-        pyqQuestionText,
-        subjectConfig,
-      });
-
-      const [saved] = await db
-        .update(lessonModules)
-        .set({ ...teach, generatedAt: new Date() })
-        .where(eq(lessonModules.id, row.id))
-        .returning();
-
+      const saved = await ensureModuleStagePhase(row, subtopicRow, subjectConfig, "teach");
       return NextResponse.json({
         subtopicId,
         subtopicText: subtopicRow.topicText,
@@ -305,20 +283,7 @@ export async function GET(request) {
     }
 
     if (phase === "practice") {
-      const practice = await generateModulePractice({
-        subtopicText: subtopicRow.topicText,
-        moduleTitle: row.title,
-        moduleScope: row.scopeNote,
-        teachContent: row.teachContent,
-        pyqQuestionText,
-        subjectConfig,
-      });
-
-      const [saved] = await db
-        .update(lessonModules)
-        .set({ ...practice, practiceGeneratedAt: new Date() })
-        .where(eq(lessonModules.id, row.id))
-        .returning();
+      const saved = await ensureModuleStagePhase(row, subtopicRow, subjectConfig, "practice");
 
       // Grasp is fully satisfied here; Remember still needs the image phase,
       // so only Grasp's own request reports ready:true -- a Remember request
@@ -339,13 +304,7 @@ export async function GET(request) {
     }
 
     // phase === "image"
-    const visualImageDataUri = await generateModuleImage({ moduleTitle: row.title, keyPoints: row.keyPoints });
-
-    const [saved] = await db
-      .update(lessonModules)
-      .set({ visualImageDataUri })
-      .where(eq(lessonModules.id, row.id))
-      .returning();
+    const saved = await ensureModuleStagePhase(row, subtopicRow, subjectConfig, "image");
 
     return NextResponse.json({
       subtopicId,

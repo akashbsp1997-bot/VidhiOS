@@ -16,7 +16,10 @@ const SOURCE_LABEL = { pyq: "Real PYQ", model: "Model question" };
 export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isLastModule, nextModuleLocked, nextModuleLockReasonLabel, onNext, onGraded }) {
   const [question, setQuestion] = useState(null);
   const [answerText, setAnswerText] = useState("");
-  const [feedback, setFeedback] = useState(null);
+  // Grading is no longer synchronous (see the 2026-07-24 overnight-batch-
+  // grading change) -- `submitted` just tracks "this answer is saved," not
+  // "graded." Progression to the next module no longer waits on a score.
+  const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [grading, setGrading] = useState(false);
   // Two separate error states, deliberately -- a GET failure (no question
@@ -33,7 +36,7 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
   useEffect(() => {
     setQuestion(null);
     setAnswerText("");
-    setFeedback(null);
+    setSubmitted(false);
     setLoadError(null);
     setGradingError(null);
     setLoading(true);
@@ -68,13 +71,15 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
           setGradingError(data.error);
           return;
         }
-        setFeedback(data.feedback);
-        // This attempt just moved masteryScore in the DB, which is exactly
-        // what decides whether the NEXT module is locked (see
-        // lib/adaptive/unlocks.js's computeModuleLocks) -- without this,
-        // the "Next module" button below would keep showing the lock state
-        // from before this attempt until the student left and re-entered
-        // the subtopic, even after a passing retry actually cleared it.
+        setSubmitted(true);
+        // This attempt just bumped moduleProgress[moduleId].testAttempts in
+        // the DB (immediately, no AI -- see app/api/attempt/route.js's
+        // POST), which is HALF of what decides whether the NEXT module is
+        // locked (see lib/adaptive/unlocks.js's computeModuleLocks) -- the
+        // other half, the subtopic mastery floor, only updates after
+        // tonight's grading run. Re-syncing now still matters: it clears
+        // the "previous_test_not_attempted" reason right away even though
+        // "mastery_below_threshold" may still hold until grading runs.
         onGraded?.();
       })
       .catch((e) => setGradingError(e.message))
@@ -89,7 +94,7 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
   // handleModuleQuestion).
   function retryTest() {
     setAnswerText("");
-    setFeedback(null);
+    setSubmitted(false);
     setGradingError(null);
     if (question?.questionSource === "pyq") return;
     setLoadError(null);
@@ -123,7 +128,7 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
       <div className="question-text">{question.questionText}</div>
       <ModelAnswerPanel subtopicId={subtopicId} questionSource={question.questionSource} questionRefId={question.questionRefId} />
 
-      {!feedback && (
+      {!submitted && (
         <>
           <textarea
             className="answer-box"
@@ -139,40 +144,19 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
           )}
           <div style={{ marginTop: 12 }}>
             <button className="btn btn-primary" onClick={submitAnswer} disabled={grading || !answerText.trim()}>
-              {grading ? "Grading…" : gradingError ? "Retry grading" : "Submit answer"}
+              {grading ? "Saving…" : gradingError ? "Retry saving" : "Submit answer"}
             </button>
           </div>
         </>
       )}
 
-      {feedback && (
+      {submitted && (
         <div style={{ marginTop: 10 }}>
-          <div className="feedback-score">{feedback.score}/100</div>
-          <p>{feedback.verdict}</p>
+          <p className="lede" style={{ marginBottom: 0 }}>
+            ✓ Saved — you'll get your score and feedback after tonight's grading run.
+          </p>
 
-          {feedback.strengths?.length > 0 && (
-            <>
-              <strong>Strengths</strong>
-              <ul className="feedback-list strong">
-                {feedback.strengths.map((s, i) => (
-                  <li key={i}>{s}</li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          {feedback.weaknesses?.length > 0 && (
-            <>
-              <strong>Weaknesses</strong>
-              <ul className="feedback-list weak">
-                {feedback.weaknesses.map((s, i) => (
-                  <li key={i}>{s}</li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
             <button className="btn" onClick={retryTest}>
               Retry this test
             </button>
@@ -204,7 +188,8 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
       )}
 
       <div className="disclaimer">
-        AI-graded feedback can be wrong, especially on exact citations — cross-check anything you plan to use in a real answer.
+        Answers are graded once a day (overnight), so feedback is available the next morning, not instantly — AI-graded
+        feedback can be wrong, especially on exact citations, so cross-check anything you plan to use in a real answer.
       </div>
     </>
   );

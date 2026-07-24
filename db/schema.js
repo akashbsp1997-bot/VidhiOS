@@ -837,3 +837,30 @@ export const paceCheckpoints = pgTable(
     pk: primaryKey({ columns: [table.userId, table.windowIndex] }),
   })
 );
+
+/**
+ * One row per (user, calendar day the answers were SAVED) -- a plain
+ * arithmetic summary (no AI call, unlike monthlyDigests above) written once
+ * by app/api/cron/grade-daily-answers/route.js after it finishes grading
+ * that user's backlog for the night, over the attempts/essayAttempts/
+ * mockTestQuestions rows it just graded. This is the "marks archived
+ * daywise" record a student checks the next morning instead of getting
+ * per-answer feedback in real time -- see the overnight-batch-grading
+ * change (2026-07-24).
+ */
+export const dailyResultsDigests = pgTable(
+  "daily_results_digests",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => authUsers.id),
+    date: text("date").notNull(), // 'YYYY-MM-DD'
+    itemCount: integer("item_count").notNull(),
+    avgScore: real("avg_score").notNull(), // 0-100
+    bySubtopic: jsonb("by_subtopic").notNull().default([]), // [{subtopicId, topicText, itemCount, avgScore}]
+    generatedAt: timestamp("generated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.date] }),
+  })
+);

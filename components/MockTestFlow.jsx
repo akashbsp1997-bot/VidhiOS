@@ -38,6 +38,7 @@ export default function MockTestFlow({ viewTestId }) {
   const [gradingProgress, setGradingProgress] = useState(null); // { done, total }
   const [report, setReport] = useState(null);
   const [reportError, setReportError] = useState(null);
+  const [pendingTotalMarks, setPendingTotalMarks] = useState(null);
 
   useEffect(() => {
     if (mode !== "start") return;
@@ -130,18 +131,19 @@ export default function MockTestFlow({ viewTestId }) {
       }
       if (cancelled) return;
       setGradingProgress({ done: toGrade.length, total: toGrade.length });
+      // Answers were just SAVED above (grade-question no longer grades
+      // inline -- see the 2026-07-24 overnight-batch-grading change), so
+      // finish only closes the test out; totalScore isn't known yet, there's
+      // nothing to fetch a report for until tonight's grading cron runs.
       const res = await fetch("/api/mock-tests/finish", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ mockTestId: test.mockTestId }),
       });
       const finishData = await res.json();
-      const detailRes = await fetch(`/api/mock-tests?id=${test.mockTestId}`);
-      const detail = await detailRes.json();
       if (cancelled) return;
-      if (detail.error) setReportError(detail.error);
-      else setReport(detail);
-      setMode("report");
+      setPendingTotalMarks(finishData.totalMarks);
+      setMode("pending");
     }
     run();
     return () => {
@@ -155,8 +157,19 @@ export default function MockTestFlow({ viewTestId }) {
     fetch(`/api/mock-tests?id=${viewTestId}`)
       .then((r) => r.json())
       .then((data) => {
-        if (data.error) setReportError(data.error);
-        else setReport(data);
+        if (data.error) {
+          setReportError(data.error);
+          return;
+        }
+        // A submitted test whose grading cron hasn't run yet has
+        // totalScore:null -- same "pending" treatment as a just-finished
+        // test, not a broken report.
+        if (data.totalScore == null) {
+          setPendingTotalMarks(data.totalMarks);
+          setMode("pending");
+        } else {
+          setReport(data);
+        }
       });
   }, [viewTestId]);
 
@@ -221,7 +234,9 @@ export default function MockTestFlow({ viewTestId }) {
                   )}
                 </span>
                 <span style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>{new Date(t.startedAt).toLocaleDateString()}</span>
-                <span className="tier-pill">{t.submittedAt ? `${t.totalScore}/${t.totalMarks}` : "—"}</span>
+                <span className="tier-pill">
+                  {t.submittedAt ? (t.totalScore != null ? `${t.totalScore}/${t.totalMarks}` : "grading…") : "—"}
+                </span>
               </div>
             ))}
           </div>
@@ -276,6 +291,22 @@ export default function MockTestFlow({ viewTestId }) {
         <div className="loading">
           {gradingProgress ? `Grading ${gradingProgress.done}/${gradingProgress.total}…` : "Submitting…"}
         </div>
+      </div>
+    );
+  }
+
+  if (mode === "pending") {
+    return (
+      <div className="card">
+        <h2 style={{ marginTop: 0 }}>Test submitted</h2>
+        <p className="lede" style={{ marginBottom: 0 }}>
+          ✓ Saved{pendingTotalMarks != null ? ` — ${pendingTotalMarks} marks total` : ""}. Results are ready after
+          tonight's grading run — check back tomorrow morning, or revisit this test from "Your past mock tests"
+          below.
+        </p>
+        <a className="btn btn-primary" href="/mock-tests" style={{ marginTop: 12 }}>
+          Back to mock tests →
+        </a>
       </div>
     );
   }

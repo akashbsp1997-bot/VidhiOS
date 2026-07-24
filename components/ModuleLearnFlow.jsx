@@ -106,7 +106,10 @@ const MODULE_STAGES = [
 
 function lockReasonLabel(reason) {
   if (reason === "previous_test_not_attempted") return "Attempt the previous module's Test first";
-  if (reason === "mastery_below_threshold") return "Raise this subtopic's mastery to unlock";
+  // Mastery only updates once a day now (see the 2026-07-24 overnight-batch-
+  // grading change) -- a student who just submitted a Test today won't see
+  // this clear until after tonight's grading run, not immediately.
+  if (reason === "mastery_below_threshold") return "Raise this subtopic's mastery to unlock (updates after tonight's grading)";
   return "Locked";
 }
 

@@ -96,10 +96,16 @@ export default function EssayTournament() {
 
   function submitEssay() {
     setSubmitting(true);
+    // gradeNow:true keeps this endpoint's OLD synchronous-grading behavior
+    // (see app/api/essay-attempt/route.js) -- everywhere else defers to the
+    // nightly batch (2026-07-24 overnight-batch-grading change), but this
+    // tournament's round-advance is a real-time game mechanic (pass/fail
+    // decided the instant the score comes back, right below), which
+    // deferred grading would break outright, not just delay.
     fetch("/api/essay-attempt", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ topicId: topic.id, essayText }),
+      body: JSON.stringify({ topicId: topic.id, essayText, gradeNow: true }),
     })
       .then((r) => r.json())
       .then((d) => {
