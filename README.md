@@ -148,11 +148,19 @@ exhausted daily quota doesn't have to mean a failed grading attempt. Leave
 error surfaces directly, no fallback attempted).
 
 **Other ways to stretch the free tier further without paying:**
-- Multiple Google AI Studio keys, each from its own Google Cloud project,
-  each with its own independent free-tier quota — legitimate (each is a
-  real project you created), though it's manual key-juggling, not something
-  this app automates for you, and Google could still tighten free-tier
-  policy for accounts it judges are gaming quota this way.
+- **Multiple keys, automatically pooled**: set `GOOGLE_AI_API_KEY_2`,
+  `_3`, `_4` (and/or `GROQ_API_KEY_2`/`_3`/`_4`) — see `.env.example`. Each
+  extra Gemini key should come from its own Google Cloud project, since
+  Google's free quota is per-project, not per-account; one Google account
+  can hold several projects, each with its own independent allocation. This
+  is legitimate (each is a real project you created, not a fake account),
+  and `lib/ai/client.js` automates the juggling itself: every text/image
+  call tries all configured, not-currently-cooling-down keys for that
+  provider in random order before falling through to the next tier (Gemini
+  pool → Groq pool). Leave the numbered vars unset to use just the one key,
+  exactly as before this existed. Google could still tighten free-tier
+  policy for accounts it judges are gaming quota this way, so don't overdo
+  it — a couple of extra keys, not dozens.
 - **Not implemented, and not recommended:** scraping the consumer Gemini web
   app (gemini.google.com) instead of the real API. That's not a documented,
   stable interface, it's against Google's terms of service, and it can get
