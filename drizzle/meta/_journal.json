@@ -176,6 +176,13 @@
       "when": 1784889917575,
       "tag": "0024_eminent_supreme_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1784891691676,
+      "tag": "0025_same_blue_shield",
+      "breakpoints": true
     }
   ]
 }

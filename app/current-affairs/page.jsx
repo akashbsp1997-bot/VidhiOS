@@ -8,6 +8,86 @@ function groupByDate(items) {
   return Object.entries(groups).sort((a, b) => (a[0] < b[0] ? 1 : -1));
 }
 
+function monthOptions() {
+  // Current month plus the 5 before it -- a digest older than that is
+  // unlikely to still be exam-relevant, and keeps the picker short.
+  const opts = [];
+  const now = new Date();
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const value = d.toISOString().slice(0, 7);
+    const label = d.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
+    opts.push({ value, label });
+  }
+  return opts;
+}
+
+function MonthlyDigest() {
+  const options = monthOptions();
+  const [month, setMonth] = useState(options[0].value);
+  const [digest, setDigest] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    setDigest(null);
+    fetch(`/api/current-affairs/monthly?month=${month}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) setError(data.error);
+        else setDigest(data);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [month]);
+
+  return (
+    <div className="card">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+        <h2 style={{ margin: 0 }}>Monthly digest</h2>
+        <select value={month} onChange={(e) => setMonth(e.target.value)} style={{ fontSize: 13 }}>
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {loading && <div className="loading">Building this month's overview…</div>}
+      {error && <div className="error-box">{error}</div>}
+
+      {digest && digest.itemCount === 0 && (
+        <p className="lede" style={{ marginBottom: 0 }}>
+          No daily digest items stored for this month yet — nothing to summarize.
+        </p>
+      )}
+
+      {digest && digest.overview && (
+        <>
+          <p style={{ fontSize: 13.5, marginBottom: 12 }}>{digest.overview}</p>
+          {digest.themes.map((t) => (
+            <div key={t.theme} style={{ marginBottom: 12 }}>
+              <h3 style={{ fontSize: 14, marginBottom: 4 }}>{t.theme}</h3>
+              <ul style={{ paddingLeft: 20, fontSize: 13.5, lineHeight: 1.6, margin: 0 }}>
+                {t.points.map((p, i) => (
+                  <li key={i}>{p}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          <p style={{ fontSize: 11, color: "var(--ink-soft)", marginTop: 4, marginBottom: 0 }}>
+            Synthesized from {digest.itemCount} daily items already tracked this month — not sourced from any
+            external monthly compilation.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function CurrentAffairsPage() {
   const [items, setItems] = useState(null);
   const [error, setError] = useState(null);
@@ -56,6 +136,8 @@ export default function CurrentAffairsPage() {
         Last 7 days, auto-summarized and tagged to real syllabus topics where relevant — a daily job, not something
         you need to check for updates on.
       </p>
+
+      <MonthlyDigest />
 
       {grouped.map(([date, dayItems]) => (
         <div className="card" key={date}>

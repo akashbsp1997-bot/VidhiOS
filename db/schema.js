@@ -806,6 +806,22 @@ export const lessonModules = pgTable(
  * measured; every later window's anchor is whatever mastery was actually
  * observed at that point, which is the "based on user usage" adjustment.
  */
+/**
+ * One row per calendar month ('YYYY-MM') -- an AI-synthesized, theme-
+ * grouped overview of that month's already-stored current_affairs_items
+ * (see lib/ai/monthlyDigest.js). Generated once, lazily, on first request
+ * for a month that doesn't have a row yet, and reused for every student who
+ * views it after -- same "generate once, cache forever" pattern as
+ * essay_guides/question_model_answers, not a per-student cost.
+ */
+export const monthlyDigests = pgTable("monthly_digests", {
+  month: text("month").primaryKey(), // 'YYYY-MM'
+  overview: text("overview").notNull(),
+  themes: jsonb("themes").notNull().default([]), // [{theme, points: string[]}]
+  itemCount: integer("item_count").notNull(), // how many daily items fed this digest, for display ("built from N articles")
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+});
+
 export const paceCheckpoints = pgTable(
   "pace_checkpoints",
   {
