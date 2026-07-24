@@ -83,8 +83,16 @@ export async function GET() {
     const todayStr = new Date().toISOString().slice(0, 10);
     const streak = computeStreak(activityDates, todayStr);
 
-    const descriptiveAttempts = allAttempts.filter((a) => a.questionSource !== "mcq");
+    // Attempts saved but not yet graded (score:null) -- see the 2026-07-24
+    // overnight-batch-grading change -- must NOT be treated as 0-scoring in
+    // the averages below (that would silently drag every stat toward 0 for
+    // anyone with same-day, not-yet-graded practice); they're counted
+    // separately as "pending" instead. MCQ attempts are unaffected (always
+    // graded instantly, deterministically, by app/api/mcq -- no AI, never
+    // deferred).
     const mcqAttempts = allAttempts.filter((a) => a.questionSource === "mcq");
+    const gradedDescriptiveAttempts = allAttempts.filter((a) => a.questionSource !== "mcq" && a.score != null);
+    const pendingDescriptiveCount = allAttempts.filter((a) => a.questionSource !== "mcq" && a.score == null).length;
 
     // A fourth, independent lens (see lib/adaptive/pacing.js's header) --
     // never blended into overallMastery above, same "no single score"
@@ -96,15 +104,20 @@ export async function GET() {
       totalSubtopics: ids.length,
       streak: { ...streak, daysActive: new Set(activityDates).size },
       descriptive: {
-        attempted: descriptiveAttempts.length,
-        avgScore: descriptiveAttempts.length ? Math.round(descriptiveAttempts.reduce((sum, a) => sum + (a.score ?? 0), 0) / descriptiveAttempts.length) : null,
+        attempted: gradedDescriptiveAttempts.length,
+        avgScore: gradedDescriptiveAttempts.length
+          ? Math.round(gradedDescriptiveAttempts.reduce((sum, a) => sum + a.score, 0) / gradedDescriptiveAttempts.length)
+          : null,
+        pendingGrading: pendingDescriptiveCount,
       },
       mcq: { attempted: mcqAttempts.length, correct: mcqAttempts.filter((a) => a.score === 100).length },
       mockTests: {
-        count: submittedMocks.length,
-        avgPct: submittedMocks.length
-          ? Math.round((submittedMocks.reduce((sum, m) => sum + (m.totalMarks ? m.totalScore / m.totalMarks : 0), 0) / submittedMocks.length) * 100)
-          : null,
+        count: submittedMocks.filter((m) => m.totalScore != null).length,
+        avgPct: (() => {
+          const graded = submittedMocks.filter((m) => m.totalScore != null && m.totalMarks);
+          return graded.length ? Math.round((graded.reduce((sum, m) => sum + m.totalScore / m.totalMarks, 0) / graded.length) * 100) : null;
+        })(),
+        pendingGrading: submittedMocks.filter((m) => m.totalScore == null).length,
         recent: submittedMocks
           .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt))
           .slice(0, 5)

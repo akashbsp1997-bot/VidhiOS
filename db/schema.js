@@ -454,7 +454,11 @@ export const mockTestQuestions = pgTable("mock_test_questions", {
   questionText: text("question_text").notNull(),
   marks: integer("marks").notNull(),
   answerText: text("answer_text"), // null until the student's grade-question call saves it
-  score: integer("score"), // 0-100; null until graded (finish treats a still-null score as 0 marks earned)
+  // 0-100; null until app/api/cron/grade-daily-answers/route.js's nightly
+  // run grades it (an unanswered question, answerText still null, is never
+  // sent for grading and is treated as 0 marks earned when that same cron
+  // sums mockTests.totalScore).
+  score: integer("score"),
   feedback: jsonb("feedback"),
 });
 
