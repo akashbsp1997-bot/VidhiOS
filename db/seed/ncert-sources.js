@@ -1,7 +1,7 @@
 // db/seed/ncert-sources.js
 //
-// Real NCERT book references for GS1/GS2/GS3 and the new Political Science
-// optional -- book-level, not chapter-level: each entry names a real,
+// Real NCERT book references for GS1/GS2/GS3, CSAT quant, and the Political
+// Science optional -- book-level, not chapter-level: each entry names a real,
 // verified NCERT textbook (title, class, subject) and attaches it to every
 // subtopic that book genuinely covers. Verified against NCERT's own
 // official catalog during research (2026-07-23), not guessed from memory
@@ -20,10 +20,15 @@
 // Deliberately NOT exhaustive: GS4 (Ethics) has no real NCERT mapping --
 // ethics/aptitude was never an NCERT subject -- and GS3's Internal
 // Security section similarly has no NCERT content to point at (no
-// textbook covers border security/terrorism/organized crime). Both need
+// textbook covers border security/terrorism/organized crime). GS4 now has
+// partial coverage from real IGNOU material instead (see
+// db/seed/govt-university-sources.js); Internal Security still needs
 // non-NCERT official sources (govt reports, ARC, MHA material) in a
 // future pass, not fabricated NCERT citations to fill a gap that's
-// genuinely not NCERT's to fill.
+// genuinely not NCERT's to fill. GS3's Science & Technology section (no
+// mapping in earlier revisions of this file) is now covered below by the
+// Science/Physics/Chemistry/Biology entries; CSAT's Basic Numeracy is
+// covered by the Mathematics entries.
 const NCERT_PORTAL_URL = "https://ncert.nic.in/textbook.php";
 
 function slugify(s) {
@@ -184,6 +189,68 @@ const NCERT_ENTRIES = [
     ncertClass: 12,
     ncertSubject: "Political Science",
   },
+
+  // --- Science (Class 6-10 combined Science, then separate Physics/
+  // Chemistry/Biology from Class 11) -- grounds GS3's Science & Technology
+  // section, previously the one GS3 sub-section with zero NCERT mapping
+  // (see the header comment above). Weighted toward 6-10 per explicit
+  // request: those are the foundational-literacy books (single combined
+  // "Science" title per class, real NCERT structure -- it doesn't split
+  // into Physics/Chemistry/Biology until class 11), listed first/primary;
+  // 11-12's split subjects are the secondary, deeper layer for the
+  // current-affairs-driven S&T topics (space, biotech, nano-tech) gs3-st3
+  // specifically needs.
+  { subtopicIds: ["gs3-st1", "gs3-st2", "gs3-st3"], ncertBook: "Science", ncertClass: 6, ncertSubject: "Science" },
+  { subtopicIds: ["gs3-st1", "gs3-st2", "gs3-st3"], ncertBook: "Science", ncertClass: 7, ncertSubject: "Science" },
+  { subtopicIds: ["gs3-st1", "gs3-st2", "gs3-st3"], ncertBook: "Science", ncertClass: 8, ncertSubject: "Science" },
+  { subtopicIds: ["gs3-st1", "gs3-st2", "gs3-st3"], ncertBook: "Science", ncertClass: 9, ncertSubject: "Science" },
+  { subtopicIds: ["gs3-st1", "gs3-st2", "gs3-st3"], ncertBook: "Science", ncertClass: 10, ncertSubject: "Science" },
+  { subtopicIds: ["gs3-st2", "gs3-st3"], ncertBook: "Physics", ncertClass: 11, ncertSubject: "Physics" },
+  { subtopicIds: ["gs3-st2", "gs3-st3"], ncertBook: "Physics", ncertClass: 12, ncertSubject: "Physics" },
+  { subtopicIds: ["gs3-st2", "gs3-st3"], ncertBook: "Chemistry", ncertClass: 11, ncertSubject: "Chemistry" },
+  { subtopicIds: ["gs3-st2", "gs3-st3"], ncertBook: "Chemistry", ncertClass: 12, ncertSubject: "Chemistry" },
+  { subtopicIds: ["gs3-st2", "gs3-st3"], ncertBook: "Biology", ncertClass: 11, ncertSubject: "Biology" },
+  { subtopicIds: ["gs3-st2", "gs3-st3"], ncertBook: "Biology", ncertClass: 12, ncertSubject: "Biology" },
+
+  // --- Mathematics -- grounds CSAT's Basic Numeracy section, an exact
+  // fit: the official CSAT syllabus text itself says "Class X level" (see
+  // db/seed/csat-quant-syllabus.js's own header), so Class 6-10 Mathematics
+  // maps onto it about as directly as an NCERT source ever will. Weighted
+  // toward 6-10 per explicit request and per the syllabus's own wording;
+  // 11-12 included as a secondary stretch layer, not the primary fit.
+  {
+    subtopicIds: ["csat-num1", "csat-num2", "csat-num3", "csat-num4", "csat-num5", "csat-num6", "csat-num7", "csat-num8", "csat-num9", "csat-num10", "csat-num11"],
+    ncertBook: "Mathematics",
+    ncertClass: 6,
+    ncertSubject: "Mathematics",
+  },
+  {
+    subtopicIds: ["csat-num1", "csat-num2", "csat-num3", "csat-num4", "csat-num5", "csat-num6", "csat-num7", "csat-num8", "csat-num9", "csat-num10", "csat-num11"],
+    ncertBook: "Mathematics",
+    ncertClass: 7,
+    ncertSubject: "Mathematics",
+  },
+  {
+    subtopicIds: ["csat-num1", "csat-num2", "csat-num3", "csat-num4", "csat-num5", "csat-num6", "csat-num7", "csat-num8", "csat-num9", "csat-num10", "csat-num11"],
+    ncertBook: "Mathematics",
+    ncertClass: 8,
+    ncertSubject: "Mathematics",
+  },
+  {
+    subtopicIds: ["csat-num1", "csat-num2", "csat-num3", "csat-num4", "csat-num5", "csat-num6", "csat-num7", "csat-num8", "csat-num9", "csat-num10", "csat-num11"],
+    ncertBook: "Mathematics",
+    ncertClass: 9,
+    ncertSubject: "Mathematics",
+  },
+  {
+    subtopicIds: ["csat-num1", "csat-num2", "csat-num3", "csat-num4", "csat-num5", "csat-num6", "csat-num7", "csat-num8", "csat-num9", "csat-num10", "csat-num11"],
+    ncertBook: "Mathematics",
+    ncertClass: 10,
+    ncertSubject: "Mathematics",
+  },
+  { subtopicIds: ["csat-di1", "csat-di2", "csat-di3", "csat-di4"], ncertBook: "Mathematics", ncertClass: 8, ncertSubject: "Mathematics" },
+  { subtopicIds: ["csat-di1", "csat-di2", "csat-di3", "csat-di4"], ncertBook: "Mathematics", ncertClass: 9, ncertSubject: "Mathematics" },
+  { subtopicIds: ["csat-di1", "csat-di2", "csat-di3", "csat-di4"], ncertBook: "Mathematics", ncertClass: 10, ncertSubject: "Mathematics" },
 ];
 
 export const ncertSourcesSeed = NCERT_ENTRIES.flatMap((entry) =>
@@ -198,8 +265,13 @@ export const ncertSourcesSeed = NCERT_ENTRIES.flatMap((entry) =>
     // Constitution at Work) -- app/api/setup's own re-run dedup logic
     // keys on exactly that pair, and three identical URLs for the same
     // subtopic would only ever let the first through, silently dropping
-    // the other two book references on every rerun.
-    url: `${NCERT_PORTAL_URL}#${slugify(entry.ncertBook)}`,
+    // the other two book references on every rerun. Includes ncertClass,
+    // not just the book title -- caught in review: "Science"/"Mathematics"
+    // are reused as the exact same title across classes 6-10 (real NCERT
+    // naming, one book per class, not one book overall), so title alone
+    // collapsed Class 6-10 Science into one identical fragment and silently
+    // dropped 4 of every 5 class-level entries on every setup rerun.
+    url: `${NCERT_PORTAL_URL}#${slugify(entry.ncertBook)}-class-${entry.ncertClass}`,
     sourceType: "other",
     official: true,
     sourceTier: "ncert",
