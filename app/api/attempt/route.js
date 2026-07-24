@@ -28,6 +28,7 @@ import { db } from "../../../lib/db.js";
 import { subtopics, mastery, pyqs, modelQuestions, attempts, sources, lessonModules, subjects } from "../../../db/schema.js";
 import { chooseSubtopic, chooseQuestionPlan } from "../../../lib/adaptive/engine.js";
 import { generateQuestion } from "../../../lib/ai/generateQuestion.js";
+import { generateModuleTest } from "../../../lib/ai/generateModules.js";
 import { getSessionUserId } from "../../../lib/supabase/server.js";
 import { getSubjectConfig } from "../../../lib/subjects/config.js";
 import { sortByTierPriority } from "../../../lib/sources/tiers.js";
@@ -36,21 +37,24 @@ import { computeModuleLocks, isStageUnlocked } from "../../../lib/adaptive/unloc
 import { isSubjectUnlocked, loadUnlockedSubjectIds } from "../../../lib/adaptive/subjectUnlockState.js";
 import { isGatedCategory } from "../../../lib/adaptive/subjectUnlocks.js";
 import { recordMissionSafe } from "../../../lib/gamification/missions.js";
+import { recentCurrentAffairsExcerpts, pickReferencePyqs } from "../../../lib/ai/contentGrounding.js";
 
 // A module-level Test (components/ModuleTestPanel.jsx) always wants exactly
 // its one question for a known subtopic+module, never the adaptive engine's
-// subtopic-choosing/pyq-vs-model-mix logic -- there's only ever one question
-// to serve per module, not a pool to rotate through. This short-circuits GET
-// entirely, mirroring how `forcedSubtopicId` already short-circuits
-// chooseSubtopic below, one level narrower.
+// subtopic-choosing logic -- there's only ever one question to serve per
+// module, not a pool to rotate through. This short-circuits GET entirely,
+// mirroring how `forcedSubtopicId` already short-circuits chooseSubtopic
+// below, one level narrower.
 //
-// A module built from a real PYQ (moduleRow.pyqId set -- see
-// app/api/module-lesson/route.js's plan phase and lib/ai/generateModules.js's
-// generateModulePlanFromPyqs) serves that EXACT real question directly, zero
-// AI calls: the module's whole reason for existing is answering it, so there
-// is no fabricated mapping here, unlike an AI-invented module (pyqId null)
-// where a real PYQ genuinely wouldn't fit and the existing generate-and-cache
-// path below still applies.
+// Every module's Test is generated now (2026-07-24 "content-first" change)
+// -- a PYQ-anchored module (moduleRow.pyqId set) used to serve that exact
+// real question verbatim, zero AI; it now generates a NEW question grounded
+// in this module's own teachContent, using the anchor PYQ only as a
+// difficulty/style/topic reference (see lib/ai/generateModules.js's
+// generateModuleTest). The pyqId still matters for the module PLAN phase
+// (which real questions the module list is built around, see
+// app/api/module-lesson/route.js) and for the "grounded in a real PYQ" badge
+// -- only the Test-stage SERVING mechanism changed.
 async function handleModuleQuestion(userId, subtopicId, moduleId, { force = false } = {}) {
   const subtopicRows = await db.select().from(subtopics).where(eq(subtopics.id, subtopicId));
   const subtopicRow = subtopicRows[0];
@@ -95,30 +99,22 @@ async function handleModuleQuestion(userId, subtopicId, moduleId, { force = fals
     return NextResponse.json({ error: "stage_locked", requiredStage: unlockedStage }, { status: 403 });
   }
 
+  // The anchor PYQ (when set) is fetched purely as a generation reference
+  // now -- never served directly. groundedInPyq surfaces that provenance to
+  // the client honestly (this question was generated in the style of a real
+  // PYQ) without implying the served text IS that PYQ.
+  let anchorPyq = null;
   if (moduleRow.pyqId) {
     const pyqRows = await db.select().from(pyqs).where(eq(pyqs.id, moduleRow.pyqId));
-    const pyq = pyqRows[0];
-    if (!pyq) return NextResponse.json({ error: `Module ${moduleId}'s anchor PYQ ${moduleRow.pyqId} not found` }, { status: 500 });
-    return NextResponse.json({
-      subtopicId,
-      subtopicText: subtopicRow.topicText,
-      moduleId,
-      tier,
-      questionSource: "pyq",
-      questionRefId: pyq.id,
-      questionText: pyq.questionText,
-      marks: pyq.marks,
-    });
+    anchorPyq = pyqRows[0] ?? null;
   }
+  const groundedInPyq = anchorPyq ? { year: anchorPyq.year, marks: anchorPyq.marks } : null;
 
-  // force=true is the AI-invented-module retry mechanism (see
-  // components/ModuleTestPanel.jsx's "Retry this test"): a PYQ-anchored
-  // module's question is fixed real text, so retry there is a pure
-  // client-side state reset (handled above, this branch never sees it) --
-  // but an AI-invented module has no "harder version" of one fixed question,
-  // so a genuine retry means generating a fresh one instead of reusing the
-  // cache. Without `force`, prefer a cached row this user hasn't already
-  // attempted, over always reusing the very first one ever generated.
+  // `force=true` (components/ModuleTestPanel.jsx's "Retry this test") always
+  // means "generate a fresh one now" -- every module's Test is generated, so
+  // there's no more "fixed real text" case to special-case. Without `force`,
+  // prefer a cached row this user hasn't already attempted, over always
+  // reusing the very first one ever generated.
   let questionRow;
   if (!force) {
     const cachedRows = await db
@@ -136,10 +132,13 @@ async function handleModuleQuestion(userId, subtopicId, moduleId, { force = fals
   }
 
   if (!questionRow) {
-    const generated = await generateQuestion({
+    const generated = await generateModuleTest({
       subtopicText: subtopicRow.topicText,
-      difficultyTier: tier,
-      moduleScope: { title: moduleRow.title, scopeNote: moduleRow.scopeNote },
+      moduleTitle: moduleRow.title,
+      moduleScope: moduleRow.scopeNote,
+      teachContent: moduleRow.teachContent,
+      pyqQuestionText: anchorPyq?.questionText,
+      pyqMarks: anchorPyq?.marks,
       subjectConfig: getSubjectConfig(subtopicRow.subjectId),
     });
     [questionRow] = await db
@@ -163,6 +162,7 @@ async function handleModuleQuestion(userId, subtopicId, moduleId, { force = fals
     questionRefId: String(questionRow.id),
     questionText: questionRow.questionText,
     marks: questionRow.marks,
+    groundedInPyq,
   });
 }
 
@@ -255,6 +255,9 @@ export async function GET(request) {
     }
     const tier = masteryBySubtopic[subtopicId]?.currentTier ?? 1;
 
+    // pyqPool is fetched as a GENERATION REFERENCE now, never served
+    // directly (see the 2026-07-24 "content-first" change) -- real PYQs are
+    // never again the literal text a student answers outside mock tests.
     const pyqPool = await db.select().from(pyqs).where(sql`${subtopicId} = ANY(${pyqs.topics})`);
     const modelPool = await db.select().from(modelQuestions).where(eq(modelQuestions.subtopicId, subtopicId));
     const seenRows = await db
@@ -263,47 +266,32 @@ export async function GET(request) {
       .where(and(eq(attempts.subtopicId, subtopicId), eq(attempts.userId, userId)));
     const seenQuestionRefIds = seenRows.map((r) => r.id);
 
-    const plan = chooseQuestionPlan({ tier, seenQuestionRefIds, pyqPool, modelPool });
+    const plan = chooseQuestionPlan({ tier, seenQuestionRefIds, modelPool });
 
     let questionText, marks, questionRefId;
-    let questionSource = plan.source;
-    // Only set when this exact PYQ is also a module's anchor question (see
-    // db/schema.js's lessonModules.pyqId) -- lets the client offer "study
-    // this as a module" instead of just answering it cold. year/slot/sec/sub
-    // are only meaningful for a real PYQ, hence undefined in the other
-    // branches below.
-    let pyqYear, pyqSlot, pyqSec, pyqSub, linkedModuleIndex;
+    let groundedInPyq = null;
 
-    if (plan.source === "pyq") {
-      const q = pyqPool.find((p) => p.id === plan.id);
-      if (!q) return NextResponse.json({ error: "Planned PYQ vanished — try again" }, { status: 500 });
-      questionText = q.questionText;
-      marks = q.marks;
-      questionRefId = q.id;
-      pyqYear = q.year;
-      pyqSlot = q.slot;
-      pyqSec = q.sec;
-      pyqSub = q.sub;
-
-      const linkedRows = await db.select().from(lessonModules).where(eq(lessonModules.pyqId, q.id));
-      linkedModuleIndex = linkedRows[0]?.orderIndex ?? null;
-    } else if (plan.source === "model") {
+    if (plan.source === "model") {
       const q = modelPool.find((m) => String(m.id) === String(plan.id));
       if (!q) return NextResponse.json({ error: "Planned model question vanished — try again" }, { status: 500 });
       questionText = q.questionText;
       marks = q.marks;
       questionRefId = String(q.id);
     } else {
-      // generate: ground in whatever cached source text this subtopic has, if any
       const srcRows = await db.select().from(sources).where(eq(sources.subtopicId, subtopicId));
       const sourceExcerpts = sortByTierPriority(srcRows.filter((s) => s.extractedText))
         .map((s) => s.extractedText)
         .slice(0, 2);
+      const currentAffairsExcerpts = await recentCurrentAffairsExcerpts(subtopicId);
+      const referencePyqs = pickReferencePyqs(pyqPool, seenQuestionRefIds);
+      if (referencePyqs[0]) groundedInPyq = { year: referencePyqs[0].year, marks: referencePyqs[0].marks };
 
       const generated = await generateQuestion({
         subtopicText: subtopicRow.topicText,
         difficultyTier: plan.difficultyTier,
         sourceExcerpts,
+        currentAffairsExcerpts,
+        referencePyqs,
         subjectConfig: getSubjectConfig(subtopicRow.subjectId),
       });
       const [inserted] = await db
@@ -318,20 +306,15 @@ export async function GET(request) {
       questionText = inserted.questionText;
       marks = inserted.marks;
       questionRefId = String(inserted.id);
-      questionSource = "model";
     }
 
     return NextResponse.json({
       subtopicId,
       subtopicText: subtopicRow.topicText,
       tier,
-      questionSource,
+      questionSource: "model",
       questionRefId,
-      pyqYear,
-      pyqSlot,
-      pyqSec,
-      pyqSub,
-      linkedModuleIndex,
+      groundedInPyq,
       questionText,
       marks,
     });

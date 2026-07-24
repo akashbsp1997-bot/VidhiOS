@@ -3,7 +3,10 @@
 import { useEffect, useState, useCallback } from "react";
 import ModelAnswerPanel from "./ModelAnswerPanel.jsx";
 
-const SOURCE_LABEL = { pyq: "Real PYQ", model: "Model question", generate: "Generating…" };
+// Every question here is generated (content-first, see the 2026-07-24
+// change) -- questionSource is always "model" now, "generate" was a
+// transient client-side-only value that never actually reached this map.
+const SOURCE_LABEL = { model: "Model question" };
 
 export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
   const [question, setQuestion] = useState(null);
@@ -104,29 +107,9 @@ export default function PracticeSession({ forcedSubtopicId, subtopicLabel }) {
           {SOURCE_LABEL[question.questionSource] || question.questionSource}
         </div>
 
-        {question.questionSource === "pyq" && question.pyqYear && (
-          <div style={{ marginBottom: 8 }}>
-            <span
-              style={{
-                display: "inline-block",
-                fontWeight: 700,
-                fontSize: 12.5,
-                padding: "2px 8px",
-                borderRadius: 6,
-                background: "var(--rule)",
-              }}
-            >
-              {question.pyqYear} Q{question.pyqSlot}
-              {question.pyqSub}
-            </span>
-            {question.linkedModuleIndex != null && (
-              <a
-                href={`/learn/${encodeURIComponent(question.subtopicId)}?module=${question.linkedModuleIndex}`}
-                style={{ marginLeft: 10, fontSize: 12.5 }}
-              >
-                Study this as a module →
-              </a>
-            )}
+        {question.groundedInPyq && (
+          <div style={{ marginBottom: 8, fontSize: 12.5, color: "var(--ink-soft)" }}>
+            ✨ In the style of a real {question.groundedInPyq.year} PYQ ({question.groundedInPyq.marks} marks)
           </div>
         )}
 

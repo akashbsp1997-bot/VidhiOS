@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import ModelAnswerPanel from "./ModelAnswerPanel.jsx";
 
-// Same convention as components/PracticeSession.jsx's SOURCE_LABEL.
-const SOURCE_LABEL = { pyq: "Real PYQ", model: "Model question" };
+// Every module Test is generated now (content-first, see the 2026-07-24
+// change) -- questionSource is always "model".
+const SOURCE_LABEL = { model: "Model question" };
 
 // Deliberately NOT PracticeSession -- that component's loadNext/"Next
 // question →" loop assumes an unbounded adaptive pool (real PYQs mixed
@@ -86,17 +87,14 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
       .finally(() => setGrading(false));
   }
 
-  // For a PYQ-anchored question the text is fixed real content -- retrying
-  // is just a local state reset, GET would deterministically re-serve the
-  // exact same question anyway. An AI-invented question has no "harder
-  // version" of itself, so retrying there means generating a genuinely
-  // different one via force=true (see app/api/attempt/route.js's
-  // handleModuleQuestion).
+  // Every module Test is generated now (content-first, see the 2026-07-24
+  // change) -- retrying always means generating a genuinely different
+  // question via force=true (see app/api/attempt/route.js's
+  // handleModuleQuestion), no more "fixed real text, just reset locally" case.
   function retryTest() {
     setAnswerText("");
     setSubmitted(false);
     setGradingError(null);
-    if (question?.questionSource === "pyq") return;
     setLoadError(null);
     setLoading(true);
     fetch(`/api/attempt?subtopicId=${encodeURIComponent(subtopicId)}&moduleId=${moduleId}&force=true`)
@@ -125,6 +123,11 @@ export default function ModuleTestPanel({ subtopicId, moduleId, moduleTitle, isL
       <div className="meta-line">
         {moduleTitle} · {question.marks} marks · {SOURCE_LABEL[question.questionSource] || question.questionSource}
       </div>
+      {question.groundedInPyq && (
+        <div style={{ marginBottom: 8, fontSize: 12.5, color: "var(--ink-soft)" }}>
+          ✨ In the style of a real {question.groundedInPyq.year} PYQ ({question.groundedInPyq.marks} marks)
+        </div>
+      )}
       <div className="question-text">{question.questionText}</div>
       <ModelAnswerPanel subtopicId={subtopicId} questionSource={question.questionSource} questionRefId={question.questionRefId} />
 
