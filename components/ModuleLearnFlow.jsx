@@ -278,7 +278,11 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
           node: moduleContent.examples.map((ex, i) => (
             <div className="example-card" key={i}>
               <div className="example-title">{ex.title}</div>
-              <div className="example-body">{ex.body}</div>
+              <ul className="example-body" style={{ margin: 0, paddingLeft: 18 }}>
+                {bulletLines(ex.body).map((line, j) => (
+                  <li key={j}>{line}</li>
+                ))}
+              </ul>
             </div>
           )),
         },
@@ -288,7 +292,11 @@ export default function ModuleLearnFlow({ subtopicId, subjectDisplayName, subtop
           node: moduleContent.exercises.map((ex, i) => (
             <div className="exercise-card" key={i}>
               <div className="exercise-prompt">{ex.prompt}</div>
-              <div className="exercise-answer">{ex.modelAnswer}</div>
+              <ul className="exercise-answer" style={{ paddingLeft: 18, marginBottom: 0 }}>
+                {bulletLines(ex.modelAnswer).map((line, j) => (
+                  <li key={j}>{line}</li>
+                ))}
+              </ul>
             </div>
           )),
         },

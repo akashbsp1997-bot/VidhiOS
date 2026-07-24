@@ -70,7 +70,11 @@ function ExerciseCard({ ex }) {
           {ex.hint ? `Hint: ${ex.hint} — show answer` : "Show model answer"}
         </button>
       ) : (
-        <div className="exercise-answer">{ex.modelAnswer}</div>
+        <ul className="exercise-answer" style={{ paddingLeft: 18, marginBottom: 0 }}>
+          {bulletLines(ex.modelAnswer).map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -248,7 +252,11 @@ export default function LegacyLearnFlow({ subtopicId, onUpgrade, upgrading }) {
           node: lesson.examples.map((ex, i) => (
             <div className="example-card" key={i}>
               <div className="example-title">{ex.title}</div>
-              <div className="example-body">{ex.body}</div>
+              <ul className="example-body" style={{ margin: 0, paddingLeft: 18 }}>
+                {bulletLines(ex.body).map((line, j) => (
+                  <li key={j}>{line}</li>
+                ))}
+              </ul>
             </div>
           )),
         },
